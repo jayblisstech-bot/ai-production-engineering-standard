@@ -1,0 +1,62 @@
+name: APES Bootstrap Migration
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: ${{ !contains(github.event.head_commit.message, '[apes-bootstrap-complete]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout destination repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Fetch APES source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/jflowdking212/ai-production-engineering-standard.git /tmp/apes-source
+          rm -rf /tmp/apes-source/.git
+
+      - name: Replace destination tree and migrate ownership references
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude '.git/' /tmp/apes-source/ ./
+          grep -RIl --exclude-dir=.git 'jflowdking212/ai-production-engineering-standard' . | xargs -r sed -i 's#jflowdking212/ai-production-engineering-standard#jayblisstech-bot/ai-production-engineering-standard#g'
+          grep -RIl --exclude-dir=.git 'jflowdking212/ai-engineering-pipeline' . | xargs -r sed -i 's#jflowdking212/ai-engineering-pipeline#jayblisstech-bot/ai-production-engineering-standard#g'
+          grep -RIl --exclude-dir=.git '@jflowdking212' . | xargs -r sed -i 's#@jflowdking212#@jayblisstech-bot#g'
+          rm -f PERMISSION_CHECK.txt
+
+      - name: Verify migrated APES tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          npm test
+          if grep -RIl --exclude-dir=.git 'jflowdking212/ai-production-engineering-standard' . | grep -q .; then
+            echo 'Old canonical repository references remain after migration.' >&2
+            exit 1
+          fi
+
+      - name: Commit migrated APES repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'jayblisstech-bot'
+          git config user.email 'jayblisstech@gmail.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No migration changes to commit.'
+            exit 0
+          fi
+          git commit -m 'feat: migrate APES v1.2.0 to canonical repository [apes-bootstrap-complete]'
+          git push origin HEAD:main
