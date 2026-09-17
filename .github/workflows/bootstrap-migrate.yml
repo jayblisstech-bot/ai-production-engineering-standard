@@ -31,9 +31,9 @@ jobs:
         run: |
           set -euo pipefail
           rsync -a --delete --exclude '.git/' /tmp/apes-source/ ./
-          grep -RIl --exclude-dir=.git 'jflowdking212/ai-production-engineering-standard' . | xargs -r sed -i 's#jflowdking212/ai-production-engineering-standard#jayblisstech-bot/ai-production-engineering-standard#g'
-          grep -RIl --exclude-dir=.git 'jflowdking212/ai-engineering-pipeline' . | xargs -r sed -i 's#jflowdking212/ai-engineering-pipeline#jayblisstech-bot/ai-production-engineering-standard#g'
-          grep -RIl --exclude-dir=.git '@jflowdking212' . | xargs -r sed -i 's#@jflowdking212#@jayblisstech-bot#g'
+          (grep -RIl --exclude-dir=.git 'jflowdking212/ai-production-engineering-standard' . || true) | xargs -r sed -i 's#jflowdking212/ai-production-engineering-standard#jayblisstech-bot/ai-production-engineering-standard#g'
+          (grep -RIl --exclude-dir=.git 'jflowdking212/ai-engineering-pipeline' . || true) | xargs -r sed -i 's#jflowdking212/ai-engineering-pipeline#jayblisstech-bot/ai-production-engineering-standard#g'
+          (grep -RIl --exclude-dir=.git '@jflowdking212' . || true) | xargs -r sed -i 's#@jflowdking212#@jayblisstech-bot#g'
           rm -f PERMISSION_CHECK.txt
 
       - name: Verify migrated APES tree
