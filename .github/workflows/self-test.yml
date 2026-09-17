@@ -1,0 +1,61 @@
+name: APES Self-Test
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/**"
+      - "package.json"
+      - "VERSION"
+      - "templates/project-repo/**"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/**"
+      - "tests/**"
+      - ".github/workflows/**"
+      - "package.json"
+      - "VERSION"
+      - "templates/project-repo/**"
+
+permissions:
+  contents: read
+
+jobs:
+  self-test:
+    name: APES Self-Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Materialize exact APES commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout "https://github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo
+          git checkout --detach "$GITHUB_SHA"
+      - name: Verify Node.js runtime
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node -e "const major=Number(process.versions.node.split('.')[0]); if (major < 20) { console.error('APES requires Node >=20'); process.exit(1); }"
+      - name: Syntax-check scripts and tests
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          find scripts tests -type f -name '*.js' -print0 | while IFS= read -r -d '' file; do
+            node --check "$file"
+          done
+      - name: Validate JSON files
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); JSON.parse(require('fs').readFileSync('templates/project-repo/.apes.json','utf8'));"
+      - name: Run APES regression/security suite
+        working-directory: repo
+        run: npm test
