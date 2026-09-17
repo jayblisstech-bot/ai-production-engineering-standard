@@ -1,6 +1,12 @@
-# AI Production Engineering Standard (APES) v1.2.0
+# AI Production Engineering Standard (APES) v1.2.1
 
 APES is a provider-neutral production engineering gate for Jay Bliss Tech repositories and other approved projects. It combines deterministic validation, risk classification, secret preflight, Hermes intelligent model routing, bounded AI review, fail-closed merge gating, and human branch-protection controls.
+
+## v1.2.1: exact-SHA production defaults
+
+v1.2.1 is a release-hardening patch. The Hermes/runtime behavior validated in v1.2.0 is unchanged; the production project template now pins the reviewed APES runtime commit `4f02a1ed79fb972998623a62c05a254e0e450687` directly in both the reusable-workflow `uses` reference and `pipeline_ref`.
+
+This removes tag movement from the downstream execution path even when release tags are separately protected.
 
 ## v1.2.0: Hermes orchestration
 
@@ -110,8 +116,8 @@ Example value:
 
 1. Central repository: `jayblisstech-bot/ai-production-engineering-standard`.
 2. Protect `main` and release tags.
-3. After tests pass, create `v1.2.0` from the reviewed commit. For strongest immutability, pin production callers to that release commit's full SHA.
-4. Do not move production tags silently; publish a new release and intentionally upgrade callers.
+3. Protect release tags, and pin production callers to the reviewed runtime commit's full SHA. v1.2.1 ships the project template with the tested v1.2.0 runtime SHA already pinned.
+4. Do not move production tags silently; publish a new release and intentionally upgrade callers to its reviewed commit SHA.
 
 ## Project onboarding
 

@@ -1,4 +1,4 @@
-# APES project onboarding checklist — v1.2.0
+# APES project onboarding checklist — v1.2.1
 
 This template is not production-ready merely because it has been copied into a repository.
 Complete these steps deliberately:
@@ -13,7 +13,7 @@ Complete these steps deliberately:
    - Gemini-only: `gemini`.
    Add only the corresponding GitHub secret(s). For multiple Gemini projects, prefer `GEMINI_API_KEYS_JSON`.
 6. Replace `@YOUR_SECURITY_OWNER` in `CODEOWNERS.example`, rename it to CODEOWNERS, and adjust sensitive paths for the repository.
-7. Publish/verify the central `v1.2.0` APES release. Prefer pinning the reusable workflow to the reviewed full commit SHA after rollout.
+7. Keep the caller pinned to the reviewed APES runtime commit `4f02a1ed79fb972998623a62c05a254e0e450687` unless you are intentionally upgrading. When upgrading, change both the reusable-workflow `uses` ref and `pipeline_ref` to the same reviewed 40-character commit SHA.
 8. Configure branch protection/rulesets to require:
    - `call-apes-v1 / quality-gate`
    - at least one human approval

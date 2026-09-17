@@ -1,6 +1,6 @@
 {
   "name": "ai-production-engineering-standard",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "APES — provider-neutral production engineering standard with Hermes-routed AI review and fail-closed GitHub quality gates",
   "scripts": {
