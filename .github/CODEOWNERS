@@ -1,0 +1,10 @@
+# APES central repository ownership
+* @jayblisstech-bot
+
+# Security-critical paths
+/.github/workflows/ @jayblisstech-bot
+/scripts/ @jayblisstech-bot
+/docs/SECURITY_POLICY.md @jayblisstech-bot
+/docs/AI_REVIEW_POLICY.md @jayblisstech-bot
+/docs/HERMES_ROUTING.md @jayblisstech-bot
+/templates/project-repo/.github/ @jayblisstech-bot
