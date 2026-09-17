@@ -4,9 +4,9 @@ on:
   workflow_call:
     inputs:
       pipeline_ref:
-        description: Stable APES release/tag used to fetch central scripts
+        description: Reviewed APES release commit used to fetch central scripts
         required: false
-        default: v1.2.0
+        default: 4f02a1ed79fb972998623a62c05a254e0e450687
         type: string
       config_path:
         description: Project-local APES JSON configuration path
@@ -45,7 +45,7 @@ jobs:
             echo "Approved immutable-style APES ref: $PIPELINE_REF"
           else
             echo "Refusing mutable/ambiguous APES pipeline_ref: $PIPELINE_REF" >&2
-            echo "Use an exact semantic-version release tag (for example v1.2.0) or, preferably, a reviewed 40-character commit SHA." >&2
+            echo "Use a reviewed 40-character commit SHA for production callers; exact semantic-version release tags remain accepted for controlled upgrade workflows." >&2
             exit 1
           fi
 
