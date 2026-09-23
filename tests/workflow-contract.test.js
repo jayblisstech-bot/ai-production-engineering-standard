@@ -16,3 +16,11 @@ test('standalone assurance workflow runs configured repository validation before
     'repository validation should run before security assurance'
   );
 });
+
+test('standalone assurance workflow verifies configured runtime headers before repository assurance', () => {
+  assert.match(assuranceWorkflow, /verify-configured-security-headers\.js/);
+  assert.ok(
+    assuranceWorkflow.indexOf('verify-configured-security-headers.js') < assuranceWorkflow.indexOf('security-assurance-audit.js'),
+    'runtime security headers should be verified before repository assurance'
+  );
+});
