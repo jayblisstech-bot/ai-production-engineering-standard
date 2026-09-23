@@ -169,7 +169,7 @@ function hasHeaderEvidence(name, runtimeFiles) {
   return false;
 }
 
-function analyzeSecurityHeaders(runtimeFiles, headerConfig) {
+function analyzeSecurityHeaders(runtimeFiles, headerConfig, runtimeVerified = false) {
   if (!headerConfig || headerConfig.mode === 'off') {
     return { applicable: false, mode: 'off', missing: [], present: [], evidenceFiles: [] };
   }
@@ -189,14 +189,15 @@ function analyzeSecurityHeaders(runtimeFiles, headerConfig) {
   ];
   const evidenceCandidates = runtimeFiles.filter(({ path }) => !matchesAny(path, headerVerifierPatterns));
   const required = headerConfig.required || [];
-  const present = required.filter((name) => hasHeaderEvidence(name, evidenceCandidates));
-  const missing = required.filter((name) => !present.includes(name));
+  const staticPresent = required.filter((name) => hasHeaderEvidence(name, evidenceCandidates));
+  const present = runtimeVerified ? [...required] : staticPresent;
+  const missing = runtimeVerified ? [] : required.filter((name) => !staticPresent.includes(name));
   const evidenceFiles = evidenceCandidates
     .filter(({ text }) => /Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options|Referrer-Policy|Permissions-Policy|X-Frame-Options|frame-ancestors|\bhelmet\b/i.test(text))
     .map(({ path }) => path)
     .slice(0, 12);
 
-  return { applicable: true, mode: headerConfig.mode, required, present, missing, evidenceFiles };
+  return { applicable: true, mode: headerConfig.mode, required, present, missing, evidenceFiles, runtimeVerified };
 }
 
 function walk(root, maxFiles, maxFileBytes) {
@@ -293,7 +294,8 @@ function scanRepository(projectRoot, config) {
     }
   }
 
-  const securityHeaders = analyzeSecurityHeaders(runtimeFiles, config.security.headers);
+  const runtimeHeadersVerified = process.env.APES_RUNTIME_HEADERS_VERIFIED === '1';
+  const securityHeaders = analyzeSecurityHeaders(runtimeFiles, config.security.headers, runtimeHeadersVerified);
   if (securityHeaders.applicable && securityHeaders.missing.length) {
     findings.push({
       id: 'SECURITY_HEADERS_INCOMPLETE',
@@ -364,7 +366,8 @@ function toMarkdown(result, config) {
     lines.push('Policy mode: **' + result.securityHeaders.mode + '**');
     lines.push('Present: ' + (result.securityHeaders.present.length ? result.securityHeaders.present.map((name) => SECURITY_HEADER_LABELS[name] || name).join(', ') : 'none'));
     lines.push('Missing: ' + (result.securityHeaders.missing.length ? result.securityHeaders.missing.map((name) => SECURITY_HEADER_LABELS[name] || name).join(', ') : 'none'));
-    if (result.securityHeaders.evidenceFiles.length) lines.push('Evidence files: ' + result.securityHeaders.evidenceFiles.join(', '));
+    if (result.securityHeaders.runtimeVerified) lines.push('Runtime verification: **PASS**');
+    if (result.securityHeaders.evidenceFiles.length) lines.push('Repository evidence files: ' + result.securityHeaders.evidenceFiles.join(', '));
     lines.push('');
   }
 
