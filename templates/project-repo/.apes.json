@@ -95,7 +95,8 @@
         "referrer-policy",
         "permissions-policy",
         "frame-protection"
-      ]
+      ],
+      "runtimeUrl": null
     }
   }
 }
