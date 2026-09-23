@@ -9,7 +9,7 @@ const DESTRUCTIVE_RULES = [
 ];
 const HIGH_CONTENT_RULES = [
   /\b(?:authoriz(?:e|ation)\w*|permission\w*|rbac|role\w*|tenantId|workspaceId|organisationId|organizationId)\b/i,
-  /\b(?:subscription|entitlement|webhook|billing|payment)\b/i,
+  /\b(?:subscription|entitlement|webhook|billing|payment|cors|csrf|encryption|backup|restore|incident|websocket|rate.?limit)\b/i,
 ];
 
 function classify({ files, diffText = '', config }) {
