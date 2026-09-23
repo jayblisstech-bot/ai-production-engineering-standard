@@ -25,3 +25,6 @@ test('security header policy defaults to required', () => { withConfig({ version
 test('invalid security header mode fails loudly', () => { withConfig({ version: 1, security: { headers: { mode: 'magic' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.headers\.mode/); }); });
 test('invalid security header applicability fails loudly', () => { withConfig({ version: 1, security: { headers: { applicability: 'maybe' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.headers\.applicability/); }); });
 test('unsupported required security header fails loudly', () => { withConfig({ version: 1, security: { headers: { required: ['x-made-up-header'] } } }, (root) => { assert.throws(() => loadConfig(root), /Unsupported security\.headers\.required/); }); });
+
+test('security header runtime URL accepts HTTPS', () => { withConfig({ version: 1, security: { headers: { runtimeUrl: 'https://example.com' } } }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.security.headers.runtimeUrl, 'https://example.com'); }); });
+test('security header runtime URL rejects non-HTTPS', () => { withConfig({ version: 1, security: { headers: { runtimeUrl: 'http://example.com' } } }, (root) => { assert.throws(() => loadConfig(root), /runtimeUrl must be null or an HTTPS URL/); }); });
