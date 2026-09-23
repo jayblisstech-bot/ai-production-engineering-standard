@@ -103,16 +103,17 @@ jobs:
           VALIDATION_OUTCOME: ${{ steps.repository_validation.outcome }}
           DEPENDENCY_OUTCOME: ${{ steps.dependency_posture.outcome }}
         run: |
+          DEPENDENCY_STATUS="${APES_DEPENDENCY_AUDIT_STATUS:-${DEPENDENCY_OUTCOME}}"
           {
             echo "## APES audit prerequisite outcomes"
             echo
             echo "- Repository validation: **${VALIDATION_OUTCOME}**"
-            echo "- Dependency posture: **${DEPENDENCY_OUTCOME}**"
+            echo "- Dependency posture: **${DEPENDENCY_STATUS}**"
             if [[ "${VALIDATION_OUTCOME}" != "success" ]]; then
               echo "- ⚠️ Repository-native validation failed. The security assurance scan still ran so the legacy audit remains comprehensive."
             fi
-            if [[ "${DEPENDENCY_OUTCOME}" != "success" ]]; then
-              echo "- ⚠️ Dependency posture check failed. Review dependency-audit logs; the assurance scan still ran."
+            if [[ "${DEPENDENCY_STATUS}" != "passed" && "${DEPENDENCY_STATUS}" != "success" && "${DEPENDENCY_STATUS}" != "skipped" ]]; then
+              echo "- ⚠️ Dependency posture is not clean. Review dependency-audit logs; the assurance scan still ran."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
