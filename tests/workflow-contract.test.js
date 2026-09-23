@@ -24,3 +24,16 @@ test('standalone assurance workflow verifies configured runtime headers before r
     'runtime security headers should be verified before repository assurance'
   );
 });
+
+test('standalone assurance resolves policy from trusted base and uses only the materialized config', () => {
+  assert.match(assuranceWorkflow, /materialize-trusted-config\.js/);
+  assert.match(assuranceWorkflow, /BASE_SHA: \$\{\{ github\.event\.pull_request\.base\.sha \|\| github\.sha \}\}/);
+  assert.match(assuranceWorkflow, /APES_CONFIG_PATH: \/tmp\/apes-trusted\.json/);
+  assert.doesNotMatch(assuranceWorkflow.slice(assuranceWorkflow.indexOf('Run configured repository validation')), /APES_CONFIG_PATH: \$\{\{ inputs\.config_path \}\}/);
+});
+
+test('standalone assurance has a final prerequisite gate', () => {
+  assert.match(assuranceWorkflow, /enforce-assurance-prerequisites\.js/);
+  assert.match(assuranceWorkflow, /VALIDATION_OUTCOME:/);
+  assert.match(assuranceWorkflow, /DEPENDENCY_STEP_OUTCOME:/);
+});
