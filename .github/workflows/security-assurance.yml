@@ -1,0 +1,128 @@
+name: APES Security Assurance Audit (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      pipeline_ref:
+        description: Reviewed APES commit SHA containing the assurance scanner
+        required: true
+        type: string
+      config_path:
+        description: Project-local APES JSON configuration path
+        required: false
+        default: .apes.json
+        type: string
+  workflow_dispatch:
+    inputs:
+      pipeline_ref:
+        description: Reviewed APES commit SHA containing the assurance scanner
+        required: true
+        type: string
+      config_path:
+        description: APES configuration path
+        required: false
+        default: .apes.json
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  assurance-audit:
+    name: APES 13-Layer Assurance Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Validate immutable APES ref
+        shell: bash
+        env:
+          PIPELINE_REF: ${{ inputs.pipeline_ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$PIPELINE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Security assurance requires a reviewed 40-character APES commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Checkout audited repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: project
+          persist-credentials: false
+
+      - name: Checkout pinned APES pipeline
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jayblisstech-bot/ai-production-engineering-standard
+          ref: ${{ inputs.pipeline_ref }}
+          path: pipeline
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+
+      - name: Run configured repository validation
+        id: repository_validation
+        continue-on-error: true
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: ${{ inputs.config_path }}
+        run: |
+          corepack enable || true
+          node pipeline/scripts/run-validation.js
+
+      - name: Validate dependency posture
+        id: dependency_posture
+        continue-on-error: true
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: ${{ inputs.config_path }}
+        run: |
+          corepack enable || true
+          node pipeline/scripts/audit-dependencies.js
+
+      - name: Verify configured runtime security headers
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: ${{ inputs.config_path }}
+        run: node pipeline/scripts/verify-configured-security-headers.js
+
+      - name: Run APES 13-layer production security assurance
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: ${{ inputs.config_path }}
+          APES_AUDIT_OUTPUT: ${{ runner.temp }}/APES_SECURITY_ASSURANCE_REPORT.md
+        run: node pipeline/scripts/security-assurance-audit.js
+
+      - name: Record audit prerequisite outcomes
+        if: always()
+        shell: bash
+        env:
+          VALIDATION_OUTCOME: ${{ steps.repository_validation.outcome }}
+          DEPENDENCY_OUTCOME: ${{ steps.dependency_posture.outcome }}
+        run: |
+          DEPENDENCY_STATUS="${APES_DEPENDENCY_AUDIT_STATUS:-${DEPENDENCY_OUTCOME}}"
+          {
+            echo "## APES audit prerequisite outcomes"
+            echo
+            echo "- Repository validation: **${VALIDATION_OUTCOME}**"
+            echo "- Dependency posture: **${DEPENDENCY_STATUS}**"
+            if [[ "${VALIDATION_OUTCOME}" != "success" ]]; then
+              echo "- ⚠️ Repository-native validation failed. The security assurance scan still ran so the legacy audit remains comprehensive."
+            fi
+            if [[ "${DEPENDENCY_STATUS}" != "passed" && "${DEPENDENCY_STATUS}" != "success" && "${DEPENDENCY_STATUS}" != "skipped" ]]; then
+              echo "- ⚠️ Dependency posture is not clean. Review dependency-audit logs; the assurance scan still ran."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve report location
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "${{ runner.temp }}/APES_SECURITY_ASSURANCE_REPORT.md" ]]; then
+            echo "APES assurance report generated and included in this run's job summary."
+          else
+            echo "No assurance report generated (assurance may be disabled)." >&2
+          fi

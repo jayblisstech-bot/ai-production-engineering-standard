@@ -2,9 +2,16 @@
   "version": 1,
   "runtime": {
     "type": "node",
-    "requiredScripts": ["typecheck", "test", "build"],
-    "optionalScripts": ["lint"],
-    "allowUnlockedInstall": false
+    "requiredScripts": [
+      "typecheck",
+      "test",
+      "build"
+    ],
+    "optionalScripts": [
+      "lint"
+    ],
+    "allowUnlockedInstall": false,
+    "projects": []
   },
   "risk": {
     "additionalCriticalPaths": [],
@@ -12,7 +19,11 @@
     "additionalLowPaths": []
   },
   "context": {
-    "documents": ["docs/PROJECT_ARCHITECTURE.md", "docs/BUSINESS_RULES.md", "docs/SECURITY_POLICY.md"],
+    "documents": [
+      "docs/PROJECT_ARCHITECTURE.md",
+      "docs/BUSINESS_RULES.md",
+      "docs/SECURITY_POLICY.md"
+    ],
     "includeChangedFiles": true,
     "includeDirectImports": true,
     "maxContextChars": 50000,
@@ -27,9 +38,21 @@
       "mode": "auto",
       "allowMixedPrimary": false,
       "providerPreference": {
-        "medium": ["openai", "anthropic", "openrouter"],
-        "strong": ["anthropic", "openai", "openrouter"],
-        "advanced": ["anthropic", "openai", "openrouter"]
+        "medium": [
+          "openai",
+          "anthropic",
+          "openrouter"
+        ],
+        "strong": [
+          "anthropic",
+          "openai",
+          "openrouter"
+        ],
+        "advanced": [
+          "anthropic",
+          "openai",
+          "openrouter"
+        ]
       },
       "geminiPool": {
         "cooldown429Ms": 60000,
@@ -40,6 +63,40 @@
     }
   },
   "security": {
-    "dependencyAudit": "required"
+    "dependencyAudit": "required",
+    "assurance": {
+      "mode": "audit",
+      "failOnSeverities": [
+        "P0",
+        "P1"
+      ],
+      "evidenceRoot": "docs/security",
+      "scanRoots": [
+        "."
+      ],
+      "maxFiles": 4000,
+      "maxFileBytes": 1048576,
+      "excludePaths": [
+        "**/*.md",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "tests/**",
+        "test/**",
+        "fixtures/**"
+      ]
+    },
+    "headers": {
+      "mode": "required",
+      "applicability": "web",
+      "required": [
+        "content-security-policy",
+        "strict-transport-security",
+        "x-content-type-options",
+        "referrer-policy",
+        "permissions-policy",
+        "frame-protection"
+      ],
+      "runtimeUrl": ""
+    }
   }
 }

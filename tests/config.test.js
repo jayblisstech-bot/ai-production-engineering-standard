@@ -15,3 +15,16 @@ test('unsafe review limits fail loudly', () => { withConfig({ version: 1, review
 test('direct OpenAI/Anthropic provider names are accepted', () => { withConfig({ version: 1, review: { allowedExternalProviders: ['openai', 'anthropic', 'gemini'] } }, (root) => { const cfg = loadConfig(root); assert.deepEqual(cfg.review.allowedExternalProviders, ['openai', 'anthropic', 'gemini']); }); });
 test('invalid Hermes routing mode fails loudly', () => { withConfig({ version: 1, review: { routing: { mode: 'magic' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid review\.routing\.mode/); }); });
 test('invalid capability provider preference fails loudly', () => { withConfig({ version: 1, review: { routing: { providerPreference: { medium: ['unknown'] } } } }, (root) => { assert.throws(() => loadConfig(root), /providerPreference\.medium/); }); });
+
+test('security assurance audit mode is accepted', () => { withConfig({ version: 1, security: { assurance: { mode: 'audit' } } }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.security.assurance.mode, 'audit'); }); });
+test('invalid security assurance mode fails loudly', () => { withConfig({ version: 1, security: { assurance: { mode: 'magic' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.assurance\.mode/); }); });
+test('monorepo runtime projects are accepted', () => { withConfig({ version: 1, runtime: { projects: [{ path: 'backend', requiredScripts: ['build'], optionalScripts: [] }] } }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.runtime.projects[0].path, 'backend'); }); });
+test('unsafe monorepo project paths fail', () => { withConfig({ version: 1, runtime: { projects: [{ path: '../outside' }] } }, (root) => { assert.throws(() => loadConfig(root), /safe relative path/); }); });
+
+test('security header policy defaults to required', () => { withConfig({ version: 1 }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.security.headers.mode, 'required'); }); });
+test('invalid security header mode fails loudly', () => { withConfig({ version: 1, security: { headers: { mode: 'magic' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.headers\.mode/); }); });
+test('invalid security header applicability fails loudly', () => { withConfig({ version: 1, security: { headers: { applicability: 'maybe' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.headers\.applicability/); }); });
+test('unsupported required security header fails loudly', () => { withConfig({ version: 1, security: { headers: { required: ['x-made-up-header'] } } }, (root) => { assert.throws(() => loadConfig(root), /Unsupported security\.headers\.required/); }); });
+
+test('security header runtime URL accepts HTTPS', () => { withConfig({ version: 1, security: { headers: { runtimeUrl: 'https://example.com' } } }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.security.headers.runtimeUrl, 'https://example.com'); }); });
+test('security header runtime URL rejects non-HTTPS', () => { withConfig({ version: 1, security: { headers: { runtimeUrl: 'http://example.com' } } }, (root) => { assert.throws(() => loadConfig(root), /runtimeUrl must be empty or an HTTPS URL/); }); });

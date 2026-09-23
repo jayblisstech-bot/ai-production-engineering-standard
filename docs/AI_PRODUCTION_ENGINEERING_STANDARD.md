@@ -34,7 +34,11 @@ Every APES-enabled repository should maintain:
 
 ## Existing-project audit mode
 
-Audit mode is read-only. It produces findings grouped CRITICAL/HIGH/MEDIUM/LOW with evidence and production impact. It must not opportunistically fix discovered issues. Findings are triaged into an approved remediation plan, then implemented through normal PR gates.
+Audit mode is read-only. It runs the APES 13-layer Production Security Assurance scan, records deterministic P0/P1/P2/P3 findings plus UNKNOWN operational controls, and must not opportunistically modify application code. Findings are triaged into an approved remediation plan, then implemented through normal PR gates.
+
+Start inherited repositories with `security.assurance.mode="audit"`. After remediation and evidence completion, switch to `"enforce"` so configured blocking severities fail closed. See `docs/SECURITY_ASSURANCE_STANDARD.md`.
+
+The assurance lifecycle is audit → remediation → internal verification → authorized external penetration test → remediation → re-audit → evidence package. APES internal review is never labeled an independent penetration test.
 
 ## Security-sensitive categories
 

@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { loadConfig } = require('./lib');
+const { loadConfig, assertSafeProjectPath } = require('./lib');
 
 function exec(cmd, args, cwd) {
   console.log(`$ ${cmd} ${args.join(' ')}`);
@@ -32,28 +32,55 @@ function installDependencies(pm, root, allowUnlockedInstall) {
   } else throw new Error(`Unsupported package manager: ${pm.name}`);
 }
 
-function runValidation({ projectRoot, config, install = true }) {
-  if (config.runtime.type !== 'node') throw new Error(`Unsupported runtime type in APES v1: ${config.runtime.type}. Add a runtime adapter before enabling the gate.`);
-  const pkgPath = path.join(projectRoot, 'package.json');
-  if (!fs.existsSync(pkgPath)) throw new Error('runtime.type=node but package.json is missing.');
+function validateNodeProject({ root, requiredScripts, optionalScripts, allowUnlockedInstall, install }) {
+  const pkgPath = path.join(root, 'package.json');
+  if (!fs.existsSync(pkgPath)) throw new Error(`Node project package.json is missing: ${pkgPath}`);
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   const scripts = pkg.scripts || {};
-  const pm = detectPackageManager(projectRoot, pkg);
+  const pm = detectPackageManager(root, pkg);
 
-  for (const name of config.runtime.requiredScripts || []) {
-    if (!scripts[name]) throw new Error(`Required validation script '${name}' is missing from package.json.`);
+  for (const name of requiredScripts || []) {
+    if (!scripts[name]) throw new Error(`Required validation script '${name}' is missing from ${pkgPath}.`);
   }
-  if (install) installDependencies(pm, projectRoot, !!config.runtime.allowUnlockedInstall);
+  if (install) installDependencies(pm, root, !!allowUnlockedInstall);
 
   const runner = pm.name === 'npm' ? ['npm', ['run']] : pm.name === 'pnpm' ? ['pnpm', ['run']] : ['yarn', []];
-  for (const name of config.runtime.requiredScripts || []) exec(runner[0], [...runner[1], name], projectRoot);
-  for (const name of config.runtime.optionalScripts || []) {
-    if (scripts[name]) exec(runner[0], [...runner[1], name], projectRoot);
-    else console.log(`Optional validation script '${name}' is not defined; skipping.`);
+  for (const name of requiredScripts || []) exec(runner[0], [...runner[1], name], root);
+  for (const name of optionalScripts || []) {
+    if (scripts[name]) exec(runner[0], [...runner[1], name], root);
+    else console.log(`Optional validation script '${name}' is not defined in ${pkgPath}; skipping.`);
   }
-  return { packageManager: pm.name, required: config.runtime.requiredScripts, optional: config.runtime.optionalScripts };
+  return { root, packageManager: pm.name, required: requiredScripts || [], optional: optionalScripts || [] };
 }
 
+function runValidation({ projectRoot, config, install = true }) {
+  if (config.runtime.type !== 'node') throw new Error(`Unsupported APES runtime type: ${config.runtime.type}. Add a runtime adapter before enabling the gate.`);
+  const projects = config.runtime.projects || [];
+  if (!projects.length) {
+    return validateNodeProject({
+      root: projectRoot,
+      requiredScripts: config.runtime.requiredScripts,
+      optionalScripts: config.runtime.optionalScripts,
+      allowUnlockedInstall: config.runtime.allowUnlockedInstall,
+      install,
+    });
+  }
+
+  const results = [];
+  for (const project of projects) {
+    const root = assertSafeProjectPath(projectRoot, project.path);
+    if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error(`Configured runtime project does not exist: ${project.path}`);
+    console.log(`\\n=== APES validation project: ${project.path} ===`);
+    results.push(validateNodeProject({
+      root,
+      requiredScripts: project.requiredScripts ?? config.runtime.requiredScripts,
+      optionalScripts: project.optionalScripts ?? config.runtime.optionalScripts,
+      allowUnlockedInstall: project.allowUnlockedInstall ?? config.runtime.allowUnlockedInstall,
+      install,
+    }));
+  }
+  return { projects: results };
+}
 function main() {
   const projectRoot = path.resolve(process.env.PROJECT_ROOT || process.cwd());
   const config = loadConfig(projectRoot, process.env.APES_CONFIG_PATH || '.apes.json');
@@ -63,4 +90,4 @@ function main() {
 if (require.main === module) {
   try { main(); } catch (err) { console.error(err.stack || err.message); process.exit(1); }
 }
-module.exports = { detectPackageManager, runValidation };
+module.exports = { detectPackageManager, installDependencies, validateNodeProject, runValidation };
