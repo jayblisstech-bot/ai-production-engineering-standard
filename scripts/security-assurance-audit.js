@@ -247,7 +247,7 @@ function scanRepository(projectRoot, config) {
       for (const secret of detectSecretsInText(text, normalized)) {
         const testOrExamplePath = matchesAny(normalized, [
           '**/*.test.*', '**/*.spec.*', 'tests/**', 'test/**', 'fixtures/**',
-          '**/scripts/test-*', '**/scripts/*test*', '**/.env.example', '**/*.example'
+          '**/scripts/test-*', '**/scripts/*test*', '**/scripts/*audit*', '**/scripts/*acceptance*', '**/scripts/*probe*', '**/.env.example', '**/*.example'
         ]);
         const highConfidenceSecret = new Set([
           'private-key', 'github-token', 'openai-openrouter-key', 'anthropic-key',
