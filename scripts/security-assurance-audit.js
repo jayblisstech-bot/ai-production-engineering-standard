@@ -216,6 +216,15 @@ function toMarkdown(result, config) {
   return lines.join('\n');
 }
 
+function evaluateAssurance(result, config) {
+  const failing = new Set(config.security.assurance.failOnSeverities);
+  const blocking = result.findings.filter((f) => failing.has(f.severity));
+  return {
+    blocking,
+    shouldFail: config.security.assurance.mode === 'enforce' && blocking.length > 0,
+  };
+}
+
 function main() {
   const projectRoot = path.resolve(process.env.PROJECT_ROOT || process.cwd());
   const config = loadConfig(projectRoot, process.env.APES_CONFIG_PATH || '.apes.json');
@@ -231,18 +240,17 @@ function main() {
   console.log(markdown);
   if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + '\n');
 
-  const failing = new Set(assurance.failOnSeverities);
-  const blocking = result.findings.filter((f) => failing.has(f.severity));
-  if (assurance.mode === 'enforce' && blocking.length) {
-    console.error('APES security assurance FAILED CLOSED with ' + blocking.length + ' configured blocking finding(s).');
+  const enforcement = evaluateAssurance(result, config);
+  if (enforcement.shouldFail) {
+    console.error('APES security assurance FAILED CLOSED with ' + enforcement.blocking.length + ' configured blocking finding(s).');
     process.exit(1);
   }
-  if (assurance.mode === 'audit' && blocking.length) {
-    console.warn('AUDIT MODE: ' + blocking.length + ' blocking-severity finding(s) recorded without failing the workflow. Remediate before switching assurance.mode to enforce.');
+  if (assurance.mode === 'audit' && enforcement.blocking.length) {
+    console.warn('AUDIT MODE: ' + enforcement.blocking.length + ' blocking-severity finding(s) recorded without failing the workflow. Remediate before switching assurance.mode to enforce.');
   }
 }
 
 if (require.main === module) {
   try { main(); } catch (err) { console.error(err.stack || err.message); process.exit(1); }
 }
-module.exports = { LAYERS, RULES, walk, scanRepository, toMarkdown };
+module.exports = { LAYERS, RULES, walk, scanRepository, toMarkdown, evaluateAssurance };
