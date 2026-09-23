@@ -86,6 +86,84 @@ const EVIDENCE_PATTERNS = {
   13: [/openai|anthropic|gemini|llm|prompt injection|ai governance|model/i],
 };
 
+const SECURITY_HEADER_LABELS = {
+  'content-security-policy': 'Content-Security-Policy',
+  'strict-transport-security': 'Strict-Transport-Security',
+  'x-content-type-options': 'X-Content-Type-Options: nosniff',
+  'referrer-policy': 'Referrer-Policy',
+  'permissions-policy': 'Permissions-Policy',
+  'frame-protection': 'frame protection (CSP frame-ancestors or X-Frame-Options)',
+};
+
+const WEB_APP_PATTERNS = [
+  /\bexpress\s*\(/i,
+  /\bfastify\s*\(/i,
+  /NestFactory\./i,
+  /\bkoa\s*\(/i,
+  /createServer\s*\(/i,
+  /\bnext\s*\(/i,
+  /"express"\s*:/i,
+  /"fastify"\s*:/i,
+  /"@nestjs\//i,
+  /"next"\s*:/i,
+  /"react"\s*:/i,
+  /"vue"\s*:/i,
+  /"@angular\//i,
+];
+
+function isWebApplication(runtimeFiles, headerConfig) {
+  if (headerConfig.applicability === 'web') return true;
+  if (headerConfig.applicability === 'non-web') return false;
+  return runtimeFiles.some(({ text }) => WEB_APP_PATTERNS.some((re) => re.test(text)));
+}
+
+function hasHeaderEvidence(name, runtimeFiles) {
+  const combined = runtimeFiles.map(({ text }) => text).join('\n');
+  const helmetUsed = /\bhelmet\s*\(\s*\)|\bhelmet\s*\(\s*\{|register\s*\(\s*helmet\b/i.test(combined);
+  const helmetCspDisabled = /contentSecurityPolicy\s*:\s*false/i.test(combined);
+  const helmetHstsDisabled = /\bhsts\s*:\s*false/i.test(combined);
+
+  if (name === 'content-security-policy') {
+    return (helmetUsed && !helmetCspDisabled) || /Content-Security-Policy/i.test(combined);
+  }
+  if (name === 'strict-transport-security') {
+    return (helmetUsed && !helmetHstsDisabled) || /Strict-Transport-Security/i.test(combined);
+  }
+  if (name === 'x-content-type-options') {
+    return helmetUsed || (/X-Content-Type-Options/i.test(combined) && /nosniff/i.test(combined));
+  }
+  if (name === 'referrer-policy') {
+    return helmetUsed || /Referrer-Policy/i.test(combined);
+  }
+  if (name === 'permissions-policy') {
+    return /Permissions-Policy/i.test(combined);
+  }
+  if (name === 'frame-protection') {
+    return helmetUsed || /X-Frame-Options/i.test(combined) || /frame-ancestors/i.test(combined);
+  }
+  return false;
+}
+
+function analyzeSecurityHeaders(runtimeFiles, headerConfig) {
+  if (!headerConfig || headerConfig.mode === 'off') {
+    return { applicable: false, mode: 'off', missing: [], present: [], evidenceFiles: [] };
+  }
+  const applicable = isWebApplication(runtimeFiles, headerConfig);
+  if (!applicable) {
+    return { applicable: false, mode: headerConfig.mode, missing: [], present: [], evidenceFiles: [] };
+  }
+
+  const required = headerConfig.required || [];
+  const present = required.filter((name) => hasHeaderEvidence(name, runtimeFiles));
+  const missing = required.filter((name) => !present.includes(name));
+  const evidenceFiles = runtimeFiles
+    .filter(({ text }) => /Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options|Referrer-Policy|Permissions-Policy|X-Frame-Options|frame-ancestors|\bhelmet\b/i.test(text))
+    .map(({ path }) => path)
+    .slice(0, 12);
+
+  return { applicable: true, mode: headerConfig.mode, required, present, missing, evidenceFiles };
+}
+
 function walk(root, maxFiles, maxFileBytes) {
   const files = [];
   function visit(dir) {
@@ -115,6 +193,7 @@ function scanRepository(projectRoot, config) {
   const seen = new Set();
   const findings = [];
   const layerEvidence = new Map(LAYERS.map(([n]) => [n, new Set()]));
+  const runtimeFiles = [];
   let scannedFiles = 0;
 
   for (const root of roots) {
@@ -134,6 +213,7 @@ function scanRepository(projectRoot, config) {
       }
 
       const excludedFromCodeRules = matchesAny(normalized, assurance.excludePaths || []);
+      if (!excludedFromCodeRules) runtimeFiles.push({ path: normalized, text });
       for (const rule of RULES) {
         if (excludedFromCodeRules && rule.id !== 'HARDCODED_PRIVATE_KEY') continue;
         let matched = null;
@@ -150,6 +230,19 @@ function scanRepository(projectRoot, config) {
         });
       }
     }
+  }
+
+  const securityHeaders = analyzeSecurityHeaders(runtimeFiles, config.security.headers);
+  if (securityHeaders.applicable && securityHeaders.missing.length) {
+    findings.push({
+      id: 'SECURITY_HEADERS_INCOMPLETE',
+      layer: 3,
+      severity: 'P1',
+      policy: 'security-headers',
+      path: '<repository>',
+      line: 1,
+      message: 'Production web security header baseline is incomplete. Missing: ' + securityHeaders.missing.map((name) => SECURITY_HEADER_LABELS[name] || name).join(', ') + '.',
+    });
   }
 
   const evidenceRoot = assertSafeProjectPath(projectRoot, assurance.evidenceRoot);
@@ -172,7 +265,7 @@ function scanRepository(projectRoot, config) {
       findings: layerFindings,
     };
   }
-  return { scannedFiles, findings, statuses, evidenceFiles, expectedEvidence };
+  return { scannedFiles, findings, statuses, evidenceFiles, expectedEvidence, securityHeaders };
 }
 
 function toMarkdown(result, config) {
@@ -203,6 +296,17 @@ function toMarkdown(result, config) {
     else lines.push('- No deterministic finding for this layer. Controls may still be unknown or require live/operational verification.');
     lines.push('');
   }
+  lines.push('## Security header baseline', '');
+  if (!result.securityHeaders || !result.securityHeaders.applicable) {
+    lines.push('Applicability: **not detected / explicitly non-web**', '');
+  } else {
+    lines.push('Policy mode: **' + result.securityHeaders.mode + '**');
+    lines.push('Present: ' + (result.securityHeaders.present.length ? result.securityHeaders.present.map((name) => SECURITY_HEADER_LABELS[name] || name).join(', ') : 'none'));
+    lines.push('Missing: ' + (result.securityHeaders.missing.length ? result.securityHeaders.missing.map((name) => SECURITY_HEADER_LABELS[name] || name).join(', ') : 'none'));
+    if (result.securityHeaders.evidenceFiles.length) lines.push('Evidence files: ' + result.securityHeaders.evidenceFiles.join(', '));
+    lines.push('');
+  }
+
   lines.push('## Enterprise security evidence pack', '', 'Evidence directory: ' + config.security.assurance.evidenceRoot, '');
   for (const name of result.expectedEvidence) lines.push('- [' + (result.evidenceFiles.includes(name) ? 'x' : ' ') + '] ' + name);
   lines.push('', '## Required interpretation', '',
@@ -219,10 +323,12 @@ function toMarkdown(result, config) {
 function evaluateAssurance(result, config) {
   const failing = new Set(config.security.assurance.failOnSeverities);
   const blocking = result.findings.filter((f) => failing.has(f.severity));
-  return {
-    blocking,
-    shouldFail: config.security.assurance.mode === 'enforce' && blocking.length > 0,
-  };
+  const headerBlocking = blocking.filter((f) => f.policy === 'security-headers');
+  const assuranceBlocking = blocking.filter((f) => f.policy !== 'security-headers');
+  const shouldFail =
+    (config.security.assurance.mode === 'enforce' && assuranceBlocking.length > 0) ||
+    (config.security.headers.mode === 'required' && headerBlocking.length > 0);
+  return { blocking, headerBlocking, assuranceBlocking, shouldFail };
 }
 
 function main() {
@@ -243,6 +349,7 @@ function main() {
   const enforcement = evaluateAssurance(result, config);
   if (enforcement.shouldFail) {
     console.error('APES security assurance FAILED CLOSED with ' + enforcement.blocking.length + ' configured blocking finding(s).');
+    if (enforcement.headerBlocking.length) console.error('Required production security headers are incomplete.');
     process.exit(1);
   }
   if (assurance.mode === 'audit' && enforcement.blocking.length) {
@@ -253,4 +360,4 @@ function main() {
 if (require.main === module) {
   try { main(); } catch (err) { console.error(err.stack || err.message); process.exit(1); }
 }
-module.exports = { LAYERS, RULES, walk, scanRepository, toMarkdown, evaluateAssurance };
+module.exports = { LAYERS, RULES, SECURITY_HEADER_LABELS, isWebApplication, analyzeSecurityHeaders, walk, scanRepository, toMarkdown, evaluateAssurance };
