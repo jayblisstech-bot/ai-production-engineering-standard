@@ -96,6 +96,7 @@ const DEFAULT_CONFIG = {
       failOnSeverities: ['P0', 'P1'],
       evidenceRoot: 'docs/security',
       scanRoots: ['.'],
+      excludePaths: ['**/*.md', '**/*.test.*', '**/*.spec.*', 'tests/**', 'test/**', 'fixtures/**'],
       maxFiles: 4000,
       maxFileBytes: 1048576
     }
@@ -151,6 +152,7 @@ function validateConfigSemantics(config) {
     ['review.allowedExternalProviders', config.review.allowedExternalProviders],
     ['security.assurance.failOnSeverities', config.security.assurance.failOnSeverities],
     ['security.assurance.scanRoots', config.security.assurance.scanRoots],
+    ['security.assurance.excludePaths', config.security.assurance.excludePaths],
   ]) {
     if (!values.every((v) => typeof v === 'string' && v.trim())) throw new Error(`APES config ${name} must contain only non-empty strings.`);
   }
