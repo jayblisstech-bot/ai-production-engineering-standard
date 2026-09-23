@@ -244,13 +244,28 @@ function scanRepository(projectRoot, config) {
       const text = buf.toString('utf8');
 
       for (const secret of detectSecretsInText(text, normalized)) {
+        const testOrExamplePath = matchesAny(normalized, [
+          '**/*.test.*', '**/*.spec.*', 'tests/**', 'test/**', 'fixtures/**',
+          '**/scripts/test-*', '**/scripts/*test*', '**/.env.example', '**/*.example'
+        ]);
+        const highConfidenceSecret = new Set([
+          'private-key', 'github-token', 'openai-openrouter-key', 'anthropic-key',
+          'google-api-key', 'aws-access-key', 'stripe-live-secret', 'stripe-webhook-secret'
+        ]).has(secret.type);
+        const severity = highConfidenceSecret
+          ? 'P0'
+          : testOrExamplePath
+          ? 'P2'
+          : secret.type === 'credential-url'
+          ? 'P0'
+          : 'P1';
         findings.push({
           id: 'REPOSITORY_SECRET_EXPOSURE',
           layer: 4,
-          severity: 'P0',
+          severity,
           path: normalized,
           line: secret.line,
-          message: 'Potential repository credential exposure detected (' + secret.type + '). Remove it from the current tree, rotate if it was ever live, and review repository history.',
+          message: 'Potential repository credential exposure detected (' + secret.type + '). Remove real credentials from the current tree; rotate and review repository history if the value was ever live. Test/example values require verification rather than automatic credential-rotation assumptions.',
         });
       }
 
