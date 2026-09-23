@@ -24,22 +24,22 @@ const EXCLUDED_DIRS = new Set(['.git','node_modules','dist','build','coverage','
 const RULES = [
   {
     id: 'AUTH_SECRET_FALLBACK', layer: 1, severity: 'P1',
-    re: /(?:AUTH_SECRET|JWT_SECRET|SESSION_SECRET)\\s*[^\\n]{0,80}\\|\\|\\s*['"][^'"]{8,}['"]/i,
+    re: /(?:AUTH_SECRET|JWT_SECRET|SESSION_SECRET)\s*[^\n]{0,80}\|\|\s*['"][^'"]{8,}['"]/i,
     message: 'Authentication/session signing secret appears to have a hard-coded fallback. Production must fail closed when the secret is absent.'
   },
   {
     id: 'BROWSER_TOKEN_STORAGE', layer: 1, severity: 'P1',
-    re: /localStorage\\.(?:setItem|getItem)\\s*\\(\\s*['"][^'"]*(?:token|jwt|session)[^'"]*['"]/i,
+    re: /localStorage\.(?:setItem|getItem)\s*\(\s*['"][^'"]*(?:token|jwt|session)[^'"]*['"]/i,
     message: 'Sensitive authentication token appears to be stored/read from browser localStorage, increasing XSS credential-theft impact.'
   },
   {
     id: 'RAW_UNSAFE_QUERY', layer: 3, severity: 'P0',
-    re: /\\$(?:queryRawUnsafe|executeRawUnsafe)\\s*\\(/i,
+    re: /\$(?:queryRawUnsafe|executeRawUnsafe)\s*\(/i,
     message: 'Unsafe raw database execution was detected. Verify parameterization immediately.'
   },
   {
     id: 'TLS_VERIFICATION_DISABLED', layer: 8, severity: 'P0',
-    re: /NODE_TLS_REJECT_UNAUTHORIZED\\s*=\\s*['"]?0|rejectUnauthorized\\s*:\\s*false/i,
+    re: /NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0|rejectUnauthorized\s*:\s*false/i,
     message: 'TLS certificate verification appears disabled.'
   },
   {
@@ -49,18 +49,18 @@ const RULES = [
   },
   {
     id: 'CREDENTIALED_CORS_FAIL_OPEN', layer: 3, severity: 'P1',
-    filePredicate: (text) => /cors\\s*\\(/i.test(text) && /credentials\\s*:\\s*true/i.test(text) &&
-      (/origin\\s*:\\s*['"]\\*['"]/i.test(text) || /else\\s*\\{[^}]{0,250}callback\\s*\\(\\s*null\\s*,\\s*true\\s*\\)/is.test(text)),
+    filePredicate: (text) => /cors\s*\(/i.test(text) && /credentials\s*:\s*true/i.test(text) &&
+      (/origin\s*:\s*['"]\*['"]/i.test(text) || /else\s*\{[^}]{0,250}callback\s*\(\s*null\s*,\s*true\s*\)/is.test(text)),
     message: 'Credentialed CORS appears wildcarded or fail-open for unapproved origins.'
   },
   {
     id: 'WEBHOOK_OPTIONAL_SIGNATURE', layer: 6, severity: 'P1',
-    re: /if\\s*\\(\\s*\\w*(?:webhook)?Secret\\w*\\s*&&\\s*\\w*signature\\w*\\s*\\)/i,
+    re: /if\s*\(\s*\w*(?:webhook)?Secret\w*\s*&&\s*\w*signature\w*\s*\)/i,
     message: 'Webhook signature verification appears conditional on both secret and signature being present; missing verification material may bypass authentication.'
   },
   {
     id: 'PUBLIC_UPLOAD_STATIC', layer: 3, severity: 'P2',
-    re: /express\\.static\\([^\\n]*(?:uploads|upload)/i,
+    re: /express\.static\([^\n]*(?:uploads|upload)/i,
     message: 'Upload storage appears directly exposed via static serving. Verify private ACLs, randomized names, content validation, and non-executable storage.'
   },
   {
@@ -79,7 +79,7 @@ const EVIDENCE_PATTERNS = {
   6: [/webhook|signature|hmac|retry|idempot|external api/i],
   7: [/package-lock|pnpm-lock|yarn.lock|dependabot|codeql|secret scan|sbom/i],
   8: [/nginx|docker|firewall|security group|ssh|kubernetes|terraform|hosting/i],
-  9: [/github\\/workflows|deploy|staging|production|rollback|artifact/i],
+  9: [/github\/workflows|deploy|staging|production|rollback|artifact/i],
   10: [/monitor|alert|audit log|observability|sentry|prometheus|logging/i],
   11: [/timeout|retry|circuit|backpressure|pagination|rate.?limit|index/i],
   12: [/backup|restore|incident|disaster|rpo|rto|business continuity/i],
@@ -106,7 +106,7 @@ function walk(root, maxFiles, maxFileBytes) {
 }
 
 function lineNumber(text, index) {
-  return text.slice(0, Math.max(0, index)).split('\\n').length;
+  return text.slice(0, Math.max(0, index)).split('\n').length;
 }
 
 function scanRepository(projectRoot, config) {
@@ -121,7 +121,7 @@ function scanRepository(projectRoot, config) {
     if (!fs.existsSync(root)) continue;
     const candidates = fs.statSync(root).isDirectory() ? walk(root, assurance.maxFiles, assurance.maxFileBytes) : [root];
     for (const full of candidates) {
-      const normalized = path.relative(projectRoot, full).replace(/\\\\/g, '/');
+      const normalized = path.relative(projectRoot, full).replace(/\\/g, '/');
       if (seen.has(normalized)) continue;
       seen.add(normalized);
       const buf = fs.readFileSync(full);
@@ -211,7 +211,7 @@ function toMarkdown(result, config) {
     '- Infrastructure, encryption-at-rest, backups, restore testing, residency, monitoring, and incident-response claims require authoritative operational evidence.',
     ''
   );
-  return lines.join('\\n');
+  return lines.join('\n');
 }
 
 function main() {
@@ -227,7 +227,7 @@ function main() {
   const output = process.env.APES_AUDIT_OUTPUT || path.join(projectRoot, 'AI_ENGINEERING_AUDIT.generated.md');
   fs.writeFileSync(output, markdown);
   console.log(markdown);
-  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + '\\n');
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown + '\n');
 
   const failing = new Set(assurance.failOnSeverities);
   const blocking = result.findings.filter((f) => failing.has(f.severity));
