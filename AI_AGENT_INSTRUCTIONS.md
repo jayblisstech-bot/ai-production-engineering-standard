@@ -34,6 +34,7 @@ If these cannot be answered confidently, inspect the existing implementation fir
 15. Before calling a system production-ready or enterprise-ready, evaluate the APES 13-layer assurance model and explicitly mark operational controls UNKNOWN when they are not evidenced.
 16. Never represent an internal APES/AI audit as an independent penetration test.
 17. For security-sensitive changes, explicitly consider browser token storage, credentialed CORS, webhook verification fail-open behavior, websocket authorization, replay/idempotency, encryption evidence, monitoring, backup/restore evidence, incident response, and AI/tool data boundaries.
+18. Production web applications must implement the APES security-header baseline: Content-Security-Policy, HSTS, X-Content-Type-Options=nosniff, Referrer-Policy, Permissions-Policy, and frame protection through CSP frame-ancestors or X-Frame-Options. Do not mark the control verified from source alone when a runtime response can be tested.
 
 ## 2. Before declaring implementation complete
 
