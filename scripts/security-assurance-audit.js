@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
-const { loadConfig, assertSafeProjectPath, isProbablyText } = require('./lib');
+const { loadConfig, assertSafeProjectPath, isProbablyText, matchesAny } = require('./lib');
 
 const LAYERS = [
   [1, 'Identity & Session Security'],
@@ -133,7 +133,9 @@ function scanRepository(projectRoot, config) {
         if (patterns.some((re) => re.test(normalized) || re.test(text))) layerEvidence.get(Number(layer)).add(normalized);
       }
 
+      const excludedFromCodeRules = matchesAny(normalized, assurance.excludePaths || []);
       for (const rule of RULES) {
+        if (excludedFromCodeRules && rule.id !== 'HARDCODED_PRIVATE_KEY') continue;
         let matched = null;
         if (rule.re) matched = rule.re.exec(text);
         else if (rule.filePredicate && rule.filePredicate(text, normalized)) matched = { index: 0 };
