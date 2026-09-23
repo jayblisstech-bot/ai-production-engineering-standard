@@ -17,6 +17,14 @@ function materializeTrustedConfig({ projectRoot, baseSha, configPath = '.apes.js
   let text = gitShow(projectRoot, `${baseSha}:${configPath}`);
   let source = 'base';
   if (text == null) {
+    // Bootstrap from PR head is allowed only for the canonical default policy file.
+    // This prevents a PR from redirecting APES to a new attacker-controlled config path.
+    if (configPath !== '.apes.json') {
+      throw new Error(
+        `Trusted APES config '${configPath}' is absent from the base branch. ` +
+        'Bootstrap fallback is allowed only for the canonical .apes.json path.'
+      );
+    }
     const headPath = assertSafeProjectPath(projectRoot, configPath);
     if (!fs.existsSync(headPath)) throw new Error(`APES config '${configPath}' does not exist on the trusted base branch or PR head.`);
     text = fs.readFileSync(headPath, 'utf8');
