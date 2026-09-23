@@ -63,6 +63,14 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Run configured repository validation
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: ${{ inputs.config_path }}
+        run: |
+          corepack enable || true
+          node pipeline/scripts/run-validation.js
+
       - name: Validate dependency posture
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
