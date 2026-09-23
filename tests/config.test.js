@@ -20,3 +20,8 @@ test('security assurance audit mode is accepted', () => { withConfig({ version: 
 test('invalid security assurance mode fails loudly', () => { withConfig({ version: 1, security: { assurance: { mode: 'magic' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.assurance\.mode/); }); });
 test('monorepo runtime projects are accepted', () => { withConfig({ version: 1, runtime: { projects: [{ path: 'backend', requiredScripts: ['build'], optionalScripts: [] }] } }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.runtime.projects[0].path, 'backend'); }); });
 test('unsafe monorepo project paths fail', () => { withConfig({ version: 1, runtime: { projects: [{ path: '../outside' }] } }, (root) => { assert.throws(() => loadConfig(root), /safe relative path/); }); });
+
+test('security header policy defaults to required', () => { withConfig({ version: 1 }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.security.headers.mode, 'required'); }); });
+test('invalid security header mode fails loudly', () => { withConfig({ version: 1, security: { headers: { mode: 'magic' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.headers\.mode/); }); });
+test('invalid security header applicability fails loudly', () => { withConfig({ version: 1, security: { headers: { applicability: 'maybe' } } }, (root) => { assert.throws(() => loadConfig(root), /Invalid security\.headers\.applicability/); }); });
+test('unsupported required security header fails loudly', () => { withConfig({ version: 1, security: { headers: { required: ['x-made-up-header'] } } }, (root) => { assert.throws(() => loadConfig(root), /Unsupported security\.headers\.required/); }); });
