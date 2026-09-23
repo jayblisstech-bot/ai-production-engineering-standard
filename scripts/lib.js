@@ -94,6 +94,7 @@ const DEFAULT_CONFIG = {
     headers: {
       mode: 'required',
       applicability: 'auto',
+      runtimeUrl: null,
       required: [
         'content-security-policy',
         'strict-transport-security',
@@ -176,6 +177,11 @@ function validateConfigSemantics(config) {
   if (!['off', 'optional', 'required'].includes(config.security.dependencyAudit)) throw new Error(`Invalid security.dependencyAudit mode: ${config.security.dependencyAudit}`);
   if (!['off', 'audit', 'required'].includes(config.security.headers.mode)) throw new Error(`Invalid security.headers.mode: ${config.security.headers.mode}`);
   if (!['auto', 'web', 'non-web'].includes(config.security.headers.applicability)) throw new Error(`Invalid security.headers.applicability: ${config.security.headers.applicability}`);
+  if (config.security.headers.runtimeUrl !== null && config.security.headers.runtimeUrl !== undefined) {
+    if (typeof config.security.headers.runtimeUrl !== 'string' || !/^https:\/\//i.test(config.security.headers.runtimeUrl)) {
+      throw new Error('security.headers.runtimeUrl must be null or an HTTPS URL.');
+    }
+  }
   const allowedSecurityHeaders = new Set(['content-security-policy', 'strict-transport-security', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'frame-protection']);
   for (const header of config.security.headers.required) {
     if (!allowedSecurityHeaders.has(header)) throw new Error(`Unsupported security.headers.required value: ${header}`);
