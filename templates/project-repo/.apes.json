@@ -96,7 +96,7 @@
         "permissions-policy",
         "frame-protection"
       ],
-      "runtimeUrl": null
+      "runtimeUrl": ""
     }
   }
 }
