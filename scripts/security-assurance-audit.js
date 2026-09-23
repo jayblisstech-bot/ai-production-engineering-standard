@@ -22,6 +22,37 @@ const LAYERS = [
 
 const EXCLUDED_DIRS = new Set(['.git','node_modules','dist','build','coverage','.next','.turbo','vendor','target','.cache']);
 
+const SENSITIVE_ARTIFACT_RULES = [
+  { re: /\.(?:pem|key|p12|pfx)$/i, severity: 'P0', message: 'Key/certificate container committed to the repository requires immediate verification; private key material must not be stored in source control.' },
+  { re: /\.(?:sql|dump|sqlite|sqlite3|db|bak|backup)$/i, severity: 'P1', message: 'Database backup/dump artifact is committed to the repository. Verify it contains no production/customer data or credentials and remove sensitive backups from source control.' },
+  { re: /\.(?:zip|tar|tgz|gz|7z)$/i, severity: 'P2', message: 'Archive artifact is committed to the repository. Verify it does not contain generated binaries, secrets, customer data, or excluded files.' },
+];
+
+function findSensitiveArtifacts(root, maxFiles = 20000) {
+  const results = [];
+  function visit(dir) {
+    if (results.length >= maxFiles) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (results.length >= maxFiles) break;
+      if (entry.isDirectory() && (EXCLUDED_DIRS.has(entry.name) || (entry.name.startsWith('.') && entry.name !== '.github'))) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const normalized = full.replace(/\\/g, '/');
+      if (/\/migrations\//i.test(normalized) && /\.sql$/i.test(normalized)) continue;
+      const rule = SENSITIVE_ARTIFACT_RULES.find((r) => r.re.test(entry.name));
+      if (!rule) continue;
+      const stat = fs.statSync(full);
+      results.push({ full, severity: rule.severity, message: rule.message, size: stat.size });
+    }
+  }
+  visit(root);
+  return results;
+}
+
 const RULES = [
   {
     id: 'AUTH_SECRET_FALLBACK', layer: 1, severity: 'P1',
@@ -229,6 +260,24 @@ function scanRepository(projectRoot, config) {
   const seen = new Set();
   const findings = [];
   const layerEvidence = new Map(LAYERS.map(([n]) => [n, new Set()]));
+
+  const sensitiveSeen = new Set();
+  for (const root of roots) {
+    if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) continue;
+    for (const artifact of findSensitiveArtifacts(root, assurance.maxFiles)) {
+      const normalized = path.relative(projectRoot, artifact.full).replace(/\\/g, '/');
+      if (sensitiveSeen.has(normalized)) continue;
+      sensitiveSeen.add(normalized);
+      findings.push({
+        id: 'SENSITIVE_REPOSITORY_ARTIFACT',
+        layer: 4,
+        severity: artifact.severity,
+        path: normalized,
+        line: 1,
+        message: artifact.message + ' Size: ' + artifact.size + ' bytes.',
+      });
+    }
+  }
   const runtimeFiles = [];
   let scannedFiles = 0;
 
@@ -424,4 +473,4 @@ function main() {
 if (require.main === module) {
   try { main(); } catch (err) { console.error(err.stack || err.message); process.exit(1); }
 }
-module.exports = { LAYERS, RULES, SECURITY_HEADER_LABELS, isWebApplication, analyzeSecurityHeaders, walk, scanRepository, toMarkdown, evaluateAssurance };
+module.exports = { LAYERS, RULES, SECURITY_HEADER_LABELS, SENSITIVE_ARTIFACT_RULES, findSensitiveArtifacts, isWebApplication, analyzeSecurityHeaders, walk, scanRepository, toMarkdown, evaluateAssurance };
