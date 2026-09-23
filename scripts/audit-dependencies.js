@@ -56,13 +56,16 @@ function runDependencyAudit({ projectRoot, config }) {
   if (!['off', 'optional', 'required'].includes(mode)) throw new Error(`Invalid security.dependencyAudit mode: ${mode}`);
   if (mode === 'off') {
     console.log('Dependency audit disabled by .apes.json.');
+    if (process.env.GITHUB_ENV) fs.appendFileSync(process.env.GITHUB_ENV, 'APES_DEPENDENCY_AUDIT_STATUS=skipped\n');
     return { mode, status: 'skipped' };
   }
   const projects = config.runtime.projects || [];
   const roots = projects.length ? projects.map((p) => assertSafeProjectPath(projectRoot, p.path)) : [projectRoot];
   const results = roots.map((root) => auditOne(root, mode));
   console.log('Dependency audit completed for all configured Node projects.');
-  return { mode, status: results.every((r) => r.status === 'passed') ? 'passed' : 'warning', projects: results };
+  const status = results.every((r) => r.status === 'passed') ? 'passed' : 'warning';
+  if (process.env.GITHUB_ENV) fs.appendFileSync(process.env.GITHUB_ENV, 'APES_DEPENDENCY_AUDIT_STATUS=' + status + '\n');
+  return { mode, status, projects: results };
 }
 function main() {
   const projectRoot = path.resolve(process.env.PROJECT_ROOT || process.cwd());
