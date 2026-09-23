@@ -24,7 +24,8 @@ const EXCLUDED_DIRS = new Set(['.git','node_modules','dist','build','coverage','
 
 const SENSITIVE_ARTIFACT_RULES = [
   { re: /\.(?:pem|key|p12|pfx)$/i, severity: 'P0', message: 'Key/certificate container committed to the repository requires immediate verification; private key material must not be stored in source control.' },
-  { re: /\.(?:sql|dump|sqlite|sqlite3|db|bak|backup)$/i, severity: 'P1', message: 'Database backup/dump artifact is committed to the repository. Verify it contains no production/customer data or credentials and remove sensitive backups from source control.' },
+  { re: /\.(?:dump|sqlite|sqlite3|db|bak|backup)$/i, severity: 'P1', message: 'Database backup/dump artifact is committed to the repository. Verify it contains no production/customer data or credentials and remove sensitive backups from source control.' },
+  { re: /\.sql$/i, severity: 'P2', message: 'Standalone SQL artifact is committed outside a recognized migrations directory. Verify whether it is schema/rollback code or a data-bearing backup.' },
   { re: /\.(?:zip|tar|tgz|gz|7z)$/i, severity: 'P2', message: 'Archive artifact is committed to the repository. Verify it does not contain generated binaries, secrets, customer data, or excluded files.' },
 ];
 
@@ -43,8 +44,11 @@ function findSensitiveArtifacts(root, maxFiles = 20000) {
       if (!entry.isFile()) continue;
       const normalized = full.replace(/\\/g, '/');
       if (/\/migrations\//i.test(normalized) && /\.sql$/i.test(normalized)) continue;
-      const rule = SENSITIVE_ARTIFACT_RULES.find((r) => r.re.test(entry.name));
+      let rule = SENSITIVE_ARTIFACT_RULES.find((r) => r.re.test(entry.name));
       if (!rule) continue;
+      if (/\.sql$/i.test(entry.name) && /(?:backup|dump|snapshot|export)/i.test(entry.name)) {
+        rule = { severity: 'P1', message: 'Database backup/dump SQL artifact is committed to the repository. Verify it contains no production/customer data or credentials and remove sensitive backups from source control.' };
+      }
       const stat = fs.statSync(full);
       results.push({ full, severity: rule.severity, message: rule.message, size: stat.size });
     }
