@@ -75,7 +75,15 @@
         "."
       ],
       "maxFiles": 4000,
-      "maxFileBytes": 1048576
+      "maxFileBytes": 1048576,
+      "excludePaths": [
+        "**/*.md",
+        "**/*.test.*",
+        "**/*.spec.*",
+        "tests/**",
+        "test/**",
+        "fixtures/**"
+      ]
     }
   }
 }
