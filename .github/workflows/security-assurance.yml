@@ -64,6 +64,8 @@ jobs:
           node-version: "20"
 
       - name: Run configured repository validation
+        id: repository_validation
+        continue-on-error: true
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
           APES_CONFIG_PATH: ${{ inputs.config_path }}
@@ -72,6 +74,8 @@ jobs:
           node pipeline/scripts/run-validation.js
 
       - name: Validate dependency posture
+        id: dependency_posture
+        continue-on-error: true
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
           APES_CONFIG_PATH: ${{ inputs.config_path }}
@@ -85,6 +89,26 @@ jobs:
           APES_CONFIG_PATH: ${{ inputs.config_path }}
           APES_AUDIT_OUTPUT: ${{ runner.temp }}/APES_SECURITY_ASSURANCE_REPORT.md
         run: node pipeline/scripts/security-assurance-audit.js
+
+      - name: Record audit prerequisite outcomes
+        if: always()
+        shell: bash
+        env:
+          VALIDATION_OUTCOME: ${{ steps.repository_validation.outcome }}
+          DEPENDENCY_OUTCOME: ${{ steps.dependency_posture.outcome }}
+        run: |
+          {
+            echo "## APES audit prerequisite outcomes"
+            echo
+            echo "- Repository validation: **${VALIDATION_OUTCOME}**"
+            echo "- Dependency posture: **${DEPENDENCY_OUTCOME}**"
+            if [[ "${VALIDATION_OUTCOME}" != "success" ]]; then
+              echo "- ⚠️ Repository-native validation failed. The security assurance scan still ran so the legacy audit remains comprehensive."
+            fi
+            if [[ "${DEPENDENCY_OUTCOME}" != "success" ]]; then
+              echo "- ⚠️ Dependency posture check failed. Review dependency-audit logs; the assurance scan still ran."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Preserve report location
         if: always()
