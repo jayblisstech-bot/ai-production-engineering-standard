@@ -84,6 +84,18 @@
         "test/**",
         "fixtures/**"
       ]
+    },
+    "headers": {
+      "mode": "required",
+      "applicability": "web",
+      "required": [
+        "content-security-policy",
+        "strict-transport-security",
+        "x-content-type-options",
+        "referrer-policy",
+        "permissions-policy",
+        "frame-protection"
+      ]
     }
   }
 }
