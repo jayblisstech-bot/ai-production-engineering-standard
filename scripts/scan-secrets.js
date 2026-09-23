@@ -2,7 +2,7 @@
 const fs = require('fs');
 const { parseUnifiedDiff } = require('./lib');
 
-const PLACEHOLDER = /(?:changeme|change_me|replace[_-]?me|\bYOUR_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*\b|your[_-]?(?:key|token|secret)|<[^>]+>|\*{3,}|process\.env|\$\{)/i;
+const PLACEHOLDER = /(?:changeme|change_me|replace[_-]?me|\bYOUR_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*\b|your[_-]?(?:key|token|secret)|your[-_][^"'\s]{0,60}(?:key|token|secret)|username:password|<[^>]+>|\*{3,}|process\.env|\$\{)/i;
 const SECRET_PATTERNS = [
   ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/],
   ['github-token', /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/],
