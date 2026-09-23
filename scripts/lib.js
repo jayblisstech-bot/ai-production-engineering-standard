@@ -8,6 +8,7 @@ const DEFAULT_CONFIG = {
     requiredScripts: ['typecheck', 'test', 'build'],
     optionalScripts: ['lint'],
     allowUnlockedInstall: false,
+    projects: [],
   },
   risk: {
     criticalPaths: [
@@ -87,7 +88,15 @@ const DEFAULT_CONFIG = {
     }
   },
   security: {
-    dependencyAudit: 'optional'
+    dependencyAudit: 'optional',
+    assurance: {
+      mode: 'off',
+      failOnSeverities: ['P0', 'P1'],
+      evidenceRoot: 'docs/security',
+      scanRoots: ['.'],
+      maxFiles: 4000,
+      maxFileBytes: 1048576
+    }
   }
 };
 
@@ -138,6 +147,8 @@ function validateConfigSemantics(config) {
     ['risk.additionalLowPaths', config.risk.additionalLowPaths],
     ['context.documents', config.context.documents],
     ['review.allowedExternalProviders', config.review.allowedExternalProviders],
+    ['security.assurance.failOnSeverities', config.security.assurance.failOnSeverities],
+    ['security.assurance.scanRoots', config.security.assurance.scanRoots],
   ]) {
     if (!values.every((v) => typeof v === 'string' && v.trim())) throw new Error(`APES config ${name} must contain only non-empty strings.`);
   }
@@ -146,6 +157,22 @@ function validateConfigSemantics(config) {
     if (!allowedProviders.has(provider)) throw new Error(`Unsupported external AI provider in APES config: ${provider}`);
   }
   if (!['off', 'optional', 'required'].includes(config.security.dependencyAudit)) throw new Error(`Invalid security.dependencyAudit mode: ${config.security.dependencyAudit}`);
+  if (!['off', 'audit', 'enforce'].includes(config.security.assurance.mode)) throw new Error(`Invalid security.assurance.mode: ${config.security.assurance.mode}`);
+  const allowedAssuranceSeverities = new Set(['P0', 'P1', 'P2', 'P3']);
+  for (const severity of config.security.assurance.failOnSeverities) {
+    if (!allowedAssuranceSeverities.has(severity)) throw new Error(`Invalid security.assurance.failOnSeverities value: ${severity}`);
+  }
+  if (!config.security.assurance.evidenceRoot || typeof config.security.assurance.evidenceRoot !== 'string') throw new Error('security.assurance.evidenceRoot must be a non-empty string.');
+  for (const project of config.runtime.projects || []) {
+    if (!isPlainObject(project)) throw new Error('runtime.projects entries must be objects.');
+    const allowed = new Set(['path', 'requiredScripts', 'optionalScripts', 'allowUnlockedInstall']);
+    for (const key of Object.keys(project)) if (!allowed.has(key)) throw new Error(`Unknown APES config key: runtime.projects[].${key}`);
+    if (!project.path || typeof project.path !== 'string' || path.isAbsolute(project.path) || project.path.split(/[\\/]+/).includes('..')) throw new Error('runtime.projects[].path must be a safe relative path.');
+    for (const field of ['requiredScripts', 'optionalScripts']) {
+      if (project[field] !== undefined && (!Array.isArray(project[field]) || !project[field].every((v) => typeof v === 'string' && v.trim()))) throw new Error(`runtime.projects[].${field} must contain only non-empty strings.`);
+    }
+    if (project.allowUnlockedInstall !== undefined && typeof project.allowUnlockedInstall !== 'boolean') throw new Error('runtime.projects[].allowUnlockedInstall must be boolean.');
+  }
   if (!['auto', 'openrouter', 'direct', 'gemini'].includes(config.review.routing.mode)) throw new Error(`Invalid review.routing.mode: ${config.review.routing.mode}`);
   const providerNames = new Set(['openrouter', 'openai', 'anthropic']);
   for (const tier of ['medium', 'strong', 'advanced']) {
@@ -173,6 +200,8 @@ function validateConfigSemantics(config) {
     ['review.routing.geminiPool.transientCooldownMs', config.review.routing.geminiPool.transientCooldownMs, 100, 300000],
     ['review.routing.geminiPool.maxRetriesPerCredential', config.review.routing.geminiPool.maxRetriesPerCredential, 0, 5],
     ['review.routing.geminiPool.backoffBaseMs', config.review.routing.geminiPool.backoffBaseMs, 50, 30000],
+    ['security.assurance.maxFiles', config.security.assurance.maxFiles, 1, 20000],
+    ['security.assurance.maxFileBytes', config.security.assurance.maxFileBytes, 1024, 10485760],
   ];
   for (const [name, value, min, max] of bounded) {
     if (!Number.isInteger(value) || value < min || value > max) throw new Error(`APES config ${name} must be an integer between ${min} and ${max}.`);
