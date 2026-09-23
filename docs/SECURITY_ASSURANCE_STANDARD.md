@@ -70,10 +70,15 @@ The first v1.3 implementation detects high-signal patterns including:
 - webhook signature verification that becomes optional when verification material is absent;
 - directly static-served upload directories;
 - embedded private keys;
-- raw HTML rendering that requires sanitization review.
+- raw HTML rendering that requires sanitization review;
+- missing production security-header baseline for detected/declared web applications.
 
 This list is intentionally conservative and should grow through regression cases discovered in real repositories.
 
 ## Legacy remediation
 
 Audit mode does not silently modify application code. The generated report becomes the remediation backlog. Fixes then flow through ordinary APES PR review so APES can confirm the vulnerability is removed and regression coverage exists.
+
+## Security header invariant
+
+Production web applications are additionally governed by `docs/SECURITY_HEADERS_STANDARD.md`. The header policy is deliberately capable of blocking independently of wider legacy audit mode: a new/remediated web app using `security.headers.mode="required"` cannot pass APES while the required baseline is absent.
