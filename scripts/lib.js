@@ -91,6 +91,18 @@ const DEFAULT_CONFIG = {
   },
   security: {
     dependencyAudit: 'optional',
+    headers: {
+      mode: 'required',
+      applicability: 'auto',
+      required: [
+        'content-security-policy',
+        'strict-transport-security',
+        'x-content-type-options',
+        'referrer-policy',
+        'permissions-policy',
+        'frame-protection'
+      ]
+    },
     assurance: {
       mode: 'off',
       failOnSeverities: ['P0', 'P1'],
@@ -150,6 +162,7 @@ function validateConfigSemantics(config) {
     ['risk.additionalLowPaths', config.risk.additionalLowPaths],
     ['context.documents', config.context.documents],
     ['review.allowedExternalProviders', config.review.allowedExternalProviders],
+    ['security.headers.required', config.security.headers.required],
     ['security.assurance.failOnSeverities', config.security.assurance.failOnSeverities],
     ['security.assurance.scanRoots', config.security.assurance.scanRoots],
     ['security.assurance.excludePaths', config.security.assurance.excludePaths],
@@ -161,6 +174,12 @@ function validateConfigSemantics(config) {
     if (!allowedProviders.has(provider)) throw new Error(`Unsupported external AI provider in APES config: ${provider}`);
   }
   if (!['off', 'optional', 'required'].includes(config.security.dependencyAudit)) throw new Error(`Invalid security.dependencyAudit mode: ${config.security.dependencyAudit}`);
+  if (!['off', 'audit', 'required'].includes(config.security.headers.mode)) throw new Error(`Invalid security.headers.mode: ${config.security.headers.mode}`);
+  if (!['auto', 'web', 'non-web'].includes(config.security.headers.applicability)) throw new Error(`Invalid security.headers.applicability: ${config.security.headers.applicability}`);
+  const allowedSecurityHeaders = new Set(['content-security-policy', 'strict-transport-security', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'frame-protection']);
+  for (const header of config.security.headers.required) {
+    if (!allowedSecurityHeaders.has(header)) throw new Error(`Unsupported security.headers.required value: ${header}`);
+  }
   if (!['off', 'audit', 'enforce'].includes(config.security.assurance.mode)) throw new Error(`Invalid security.assurance.mode: ${config.security.assurance.mode}`);
   const allowedAssuranceSeverities = new Set(['P0', 'P1', 'P2', 'P3']);
   for (const severity of config.security.assurance.failOnSeverities) {
