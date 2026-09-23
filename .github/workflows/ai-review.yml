@@ -145,6 +145,12 @@ jobs:
         run: |
           corepack enable || true
           node pipeline/scripts/audit-dependencies.js
+      - name: APES 13-layer production security assurance
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
+          APES_AUDIT_OUTPUT: /tmp/apes-security-assurance.md
+        run: node pipeline/scripts/security-assurance-audit.js
 
   deterministic-checks:
     runs-on: ubuntu-latest
