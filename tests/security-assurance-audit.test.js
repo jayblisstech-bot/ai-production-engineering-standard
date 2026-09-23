@@ -94,3 +94,24 @@ test('web application missing header baseline produces blocking P1 finding', () 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('security-header verifier script alone cannot satisfy implementation evidence', () => {
+  const files = [
+    {
+      path: 'backend/scripts/verify-security-headers.ts',
+      text: "fetch(url); headers.get('content-security-policy'); headers.get('strict-transport-security'); headers.get('x-content-type-options'); headers.get('referrer-policy'); headers.get('permissions-policy'); headers.get('x-frame-options');"
+    },
+    {
+      path: 'backend/src/index.ts',
+      text: "const express = require('express'); const app = express();"
+    }
+  ];
+  const result = analyzeSecurityHeaders(files, {
+    mode: 'required',
+    applicability: 'web',
+    required: ['content-security-policy','strict-transport-security','x-content-type-options','referrer-policy','permissions-policy','frame-protection']
+  });
+  assert.ok(result.missing.includes('content-security-policy'));
+  assert.ok(result.missing.includes('strict-transport-security'));
+  assert.ok(result.missing.includes('permissions-policy'));
+});
