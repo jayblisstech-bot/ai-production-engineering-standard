@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { loadConfig, assertSafeProjectPath, isProbablyText, matchesAny } = require('./lib');
+const { detectSecretsInText } = require('./scan-secrets');
 
 const LAYERS = [
   [1, 'Identity & Session Security'],
@@ -24,8 +25,16 @@ const EXCLUDED_DIRS = new Set(['.git','node_modules','dist','build','coverage','
 const RULES = [
   {
     id: 'AUTH_SECRET_FALLBACK', layer: 1, severity: 'P1',
-    re: /(?:AUTH_SECRET|JWT_SECRET|SESSION_SECRET)\s*[^\n]{0,80}\|\|\s*['"][^'"]{8,}['"]/i,
-    message: 'Authentication/session signing secret appears to have a hard-coded fallback. Production must fail closed when the secret is absent.'
+    filePredicate: (text) => {
+      const fallback = /(?:AUTH_SECRET|JWT_SECRET|SESSION_SECRET|rawSecret)\s*[^\n]{0,120}\|\|\s*['"][^'"]{8,}['"]/i.test(text);
+      if (!fallback) return false;
+      const explicitTestOnlyFailClosed =
+        /NODE_ENV\s*!==\s*['"]test['"]/i.test(text) &&
+        /process\.exit\s*\(\s*1\s*\)/i.test(text) &&
+        /test[-_ ]only|do-not-use-in-production/i.test(text);
+      return !explicitTestOnlyFailClosed;
+    },
+    message: 'Authentication/session signing secret appears to have a hard-coded fallback without a verified test-only fail-closed guard.'
   },
   {
     id: 'BROWSER_TOKEN_STORAGE', layer: 1, severity: 'P1',
@@ -33,9 +42,14 @@ const RULES = [
     message: 'Sensitive authentication token appears to be stored/read from browser localStorage, increasing XSS credential-theft impact.'
   },
   {
-    id: 'RAW_UNSAFE_QUERY', layer: 3, severity: 'P0',
+    id: 'RAW_UNSAFE_QUERY_DYNAMIC', layer: 3, severity: 'P0',
+    re: /\$(?:queryRawUnsafe|executeRawUnsafe)\s*\(\s*(?:`[^`]*\$\{|[^)\n]*(?:req\.|request\.|params\.|body\.|query\.|userInput|user_input|input)[^)\n]*)/i,
+    message: 'Potentially dynamic unsafe raw database execution was detected. Treat as injection-critical until proven otherwise.'
+  },
+  {
+    id: 'RAW_UNSAFE_QUERY', layer: 3, severity: 'P2',
     re: /\$(?:queryRawUnsafe|executeRawUnsafe)\s*\(/i,
-    message: 'Unsafe raw database execution was detected. Verify parameterization immediately.'
+    message: 'Unsafe raw database API usage was detected. Verify the SQL is static or parameterized; prefer safe tagged/parameterized APIs.'
   },
   {
     id: 'TLS_VERIFICATION_DISABLED', layer: 8, severity: 'P0',
@@ -57,6 +71,17 @@ const RULES = [
     id: 'WEBHOOK_OPTIONAL_SIGNATURE', layer: 6, severity: 'P1',
     re: /if\s*\(\s*\w*(?:webhook)?Secret\w*\s*&&\s*\w*signature\w*\s*\)/i,
     message: 'Webhook signature verification appears conditional on both secret and signature being present; missing verification material may bypass authentication.'
+  },
+  {
+    id: 'WEBHOOK_SECRET_OPTIONAL', layer: 6, severity: 'P1',
+    filePredicate: (text) => {
+      const readsWebhookSecret = /process\.env\.[A-Z0-9_]*WEBHOOK_SECRET/i.test(text);
+      const conditionalVerification = /if\s*\(\s*\w*(?:webhook)?Secret\w*\s*\)\s*\{/i.test(text);
+      const explicitMissingSecretRejection =
+        /if\s*\(\s*!\s*\w*(?:webhook)?Secret\w*\s*\)[\s\S]{0,400}(?:return|throw|process\.exit)/i.test(text);
+      return readsWebhookSecret && conditionalVerification && !explicitMissingSecretRejection;
+    },
+    message: 'Webhook verification secret appears optional; when the secret is absent the endpoint may accept unsigned events. Production webhook verification must fail closed.'
   },
   {
     id: 'PUBLIC_UPLOAD_STATIC', layer: 3, severity: 'P2',
@@ -217,6 +242,17 @@ function scanRepository(projectRoot, config) {
       if (!isProbablyText(buf)) continue;
       scannedFiles += 1;
       const text = buf.toString('utf8');
+
+      for (const secret of detectSecretsInText(text, normalized)) {
+        findings.push({
+          id: 'REPOSITORY_SECRET_EXPOSURE',
+          layer: 4,
+          severity: 'P0',
+          path: normalized,
+          line: secret.line,
+          message: 'Potential repository credential exposure detected (' + secret.type + '). Remove it from the current tree, rotate if it was ever live, and review repository history.',
+        });
+      }
 
       for (const [layer, patterns] of Object.entries(EVIDENCE_PATTERNS)) {
         if (patterns.some((re) => re.test(normalized) || re.test(text))) layerEvidence.get(Number(layer)).add(normalized);
