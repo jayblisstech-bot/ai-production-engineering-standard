@@ -225,3 +225,18 @@ test('verified runtime headers satisfy the APES header baseline even without rep
   assert.deepEqual(result.missing, []);
   assert.equal(result.present.length, 6);
 });
+
+test('audit and acceptance script credentials are review findings rather than automatic P1 exposures', () => {
+  const root = tempRepo({
+    'backend/scripts/full-acceptance-suite.ts': "const payload = { password: 'WrongPassword999!' };",
+    'backend/scripts/audit-live-integrity.ts': "const payload = { password: 'Password123!' };"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    const secretFindings = result.findings.filter((x) => x.id === 'REPOSITORY_SECRET_EXPOSURE');
+    assert.equal(secretFindings.length, 2);
+    assert.ok(secretFindings.every((x) => x.severity === 'P2'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
