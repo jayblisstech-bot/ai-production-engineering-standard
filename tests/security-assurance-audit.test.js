@@ -240,3 +240,26 @@ test('audit and acceptance script credentials are review findings rather than au
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('large database backup artifact is detected even when content exceeds scan byte limit', () => {
+  const root = tempRepo({ 'backend/numerra_backup.sql': 'x'.repeat(4096) });
+  try {
+    const config = cfg();
+    config.security.assurance.maxFileBytes = 1024;
+    const result = scanRepository(root, config);
+    const finding = result.findings.find((x) => x.id === 'SENSITIVE_REPOSITORY_ARTIFACT' && x.path === 'backend/numerra_backup.sql');
+    assert.equal(finding.severity, 'P1');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Prisma migration SQL is not treated as a database-backup artifact', () => {
+  const root = tempRepo({ 'backend/prisma/migrations/20260923_init/migration.sql': 'CREATE TABLE Example(id INT);' });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.equal(result.findings.some((x) => x.id === 'SENSITIVE_REPOSITORY_ARTIFACT'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
