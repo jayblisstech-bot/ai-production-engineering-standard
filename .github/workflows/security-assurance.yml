@@ -83,6 +83,12 @@ jobs:
           corepack enable || true
           node pipeline/scripts/audit-dependencies.js
 
+      - name: Verify configured runtime security headers
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: ${{ inputs.config_path }}
+        run: node pipeline/scripts/verify-configured-security-headers.js
+
       - name: Run APES 13-layer production security assurance
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
