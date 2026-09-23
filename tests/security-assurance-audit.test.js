@@ -115,3 +115,76 @@ test('security-header verifier script alone cannot satisfy implementation eviden
   assert.ok(result.missing.includes('strict-transport-security'));
   assert.ok(result.missing.includes('permissions-policy'));
 });
+
+test('test-only fail-closed auth secret fallback is not reported', () => {
+  const root = tempRepo({
+    'src/auth.ts': "const rawSecret = process.env.AUTH_SECRET || process.env.JWT_SECRET; if (!rawSecret && process.env.NODE_ENV !== 'test') { process.exit(1); } const AUTH_SECRET = rawSecret || 'app-test-only-secret-do-not-use-in-production';"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.equal(result.findings.some((x) => x.id === 'AUTH_SECRET_FALLBACK'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('unsafe production auth secret fallback is still reported', () => {
+  const root = tempRepo({
+    'src/auth.ts': "const AUTH_SECRET = process.env.AUTH_SECRET || 'hardcoded-production-secret';"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.ok(result.findings.some((x) => x.id === 'AUTH_SECRET_FALLBACK' && x.severity === 'P1'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('generic unsafe raw query API is review-required but not automatically P0', () => {
+  const root = tempRepo({
+    'scripts/migrate.ts': "const sql = 'ALTER TABLE x ADD COLUMN y INT'; await prisma.$executeRawUnsafe(sql);"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.ok(result.findings.some((x) => x.id === 'RAW_UNSAFE_QUERY' && x.severity === 'P2'));
+    assert.equal(result.findings.some((x) => x.id === 'RAW_UNSAFE_QUERY_DYNAMIC'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dynamic unsafe raw query remains P0', () => {
+  const root = tempRepo({
+    'src/search.ts': "await prisma.$queryRawUnsafe(\`SELECT * FROM users WHERE email = '${req.body.email}'\`);"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.ok(result.findings.some((x) => x.id === 'RAW_UNSAFE_QUERY_DYNAMIC' && x.severity === 'P0'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('webhook secret that disables verification when absent is reported', () => {
+  const root = tempRepo({
+    'src/webhook.ts': "const webhookSecret = process.env.MONIEPOINT_WEBHOOK_SECRET; if (webhookSecret) { verify(signature, webhookSecret); } persist(body);"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.ok(result.findings.some((x) => x.id === 'WEBHOOK_SECRET_OPTIONAL' && x.severity === 'P1'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('repository secret detection still scans markdown excluded from code heuristics', () => {
+  const root = tempRepo({
+    'docs/deploy.md': 'DATABASE_URL="mysql://produser:SuperSecretPassword123@localhost:3306/app"'
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.ok(result.findings.some((x) => x.id === 'REPOSITORY_SECRET_EXPOSURE' && x.severity === 'P0' && x.path === 'docs/deploy.md'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
