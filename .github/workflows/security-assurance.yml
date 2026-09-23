@@ -47,6 +47,7 @@ jobs:
       - name: Checkout audited repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           path: project
           persist-credentials: false
@@ -63,12 +64,21 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Resolve trusted base-branch APES policy
+        id: trusted_policy
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          REQUESTED_CONFIG_PATH: ${{ inputs.config_path }}
+          OUTPUT_PATH: /tmp/apes-trusted.json
+        run: node pipeline/scripts/materialize-trusted-config.js
+
       - name: Run configured repository validation
         id: repository_validation
         continue-on-error: true
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
-          APES_CONFIG_PATH: ${{ inputs.config_path }}
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
         run: |
           corepack enable || true
           node pipeline/scripts/run-validation.js
@@ -78,7 +88,7 @@ jobs:
         continue-on-error: true
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
-          APES_CONFIG_PATH: ${{ inputs.config_path }}
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
         run: |
           corepack enable || true
           node pipeline/scripts/audit-dependencies.js
@@ -86,13 +96,13 @@ jobs:
       - name: Verify configured runtime security headers
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
-          APES_CONFIG_PATH: ${{ inputs.config_path }}
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
         run: node pipeline/scripts/verify-configured-security-headers.js
 
       - name: Run APES 13-layer production security assurance
         env:
           PROJECT_ROOT: ${{ github.workspace }}/project
-          APES_CONFIG_PATH: ${{ inputs.config_path }}
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
           APES_AUDIT_OUTPUT: ${{ runner.temp }}/APES_SECURITY_ASSURANCE_REPORT.md
         run: node pipeline/scripts/security-assurance-audit.js
 
@@ -116,6 +126,18 @@ jobs:
               echo "- ⚠️ Dependency posture is not clean. Review dependency-audit logs; the assurance scan still ran."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce standalone assurance prerequisites
+        if: always() && steps.trusted_policy.outcome == 'success'
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
+          VALIDATION_OUTCOME: ${{ steps.repository_validation.outcome }}
+          DEPENDENCY_STEP_OUTCOME: ${{ steps.dependency_posture.outcome }}
+        shell: bash
+        run: |
+          export DEPENDENCY_STATUS="${APES_DEPENDENCY_AUDIT_STATUS:-${DEPENDENCY_STEP_OUTCOME}}"
+          node pipeline/scripts/enforce-assurance-prerequisites.js
 
       - name: Preserve report location
         if: always()
