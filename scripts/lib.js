@@ -15,6 +15,8 @@ const DEFAULT_CONFIG = {
       '**/payments/**', '**/payment/**', '**/billing/**', '**/webhooks/**',
       '**/auth/**', '**/authentication/**', '**/authorization/**', '**/rbac/**',
       '**/permissions/**', '**/sessions/**', '**/security/**', '**/migrations/**',
+      '**/infrastructure/**', '**/infra/**', '**/deploy/**', '**/deployment/**',
+      '**/incident/**', '**/backup/**', '**/recovery/**', '**/websocket/**', '**/sockets/**',
       '.github/workflows/**', '.apes.json', '**/CODEOWNERS'
     ],
     highPaths: [
