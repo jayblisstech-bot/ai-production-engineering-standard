@@ -12,6 +12,7 @@ const SECRET_PATTERNS = [
   ['aws-access-key', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/],
   ['stripe-live-secret', /\b(?:sk_live|rk_live)_[0-9A-Za-z]{16,}\b/],
   ['stripe-webhook-secret', /\bwhsec_[0-9A-Za-z]{16,}\b/],
+  ['demo-access-key', /\bDEMO_ACCESS_KEY\b\s*[:=]\s*["'][^"']{6,}["']/i],
   ['generic-secret-assignment', /\b(?:api[_-]?key|secret|client[_-]?secret|password|passwd|token)\b\s*[:=]\s*["'][^"']{12,}["']/i],
   ['credential-url', /\b(?:https?|postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s:@/]+:[^\s@/]{8,}@/i],
 ];
