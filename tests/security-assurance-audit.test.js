@@ -188,3 +188,28 @@ test('repository secret detection still scans markdown excluded from code heuris
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('generic credentials in test scripts are review findings, not automatic P0 exposures', () => {
+  const root = tempRepo({
+    'backend/scripts/test-auth.ts': "const password = 'WrongPassword999!';"
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    const finding = result.findings.find((x) => x.id === 'REPOSITORY_SECRET_EXPOSURE');
+    assert.equal(finding.severity, 'P2');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('username password example database URL is recognized as placeholder', () => {
+  const root = tempRepo({
+    'backend/.env.example': 'DATABASE_URL="mysql://username:password@localhost:3306/app"'
+  });
+  try {
+    const result = scanRepository(root, cfg());
+    assert.equal(result.findings.some((x) => x.id === 'REPOSITORY_SECRET_EXPOSURE'), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
