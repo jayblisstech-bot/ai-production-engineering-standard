@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { DEFAULT_CONFIG } = require('../scripts/lib');
-const { scanRepository, toMarkdown, LAYERS } = require('../scripts/security-assurance-audit');
+const { scanRepository, toMarkdown, LAYERS, analyzeSecurityHeaders } = require('../scripts/security-assurance-audit');
 
 function tempRepo(files) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-assurance-'));
@@ -64,6 +64,32 @@ test('never manufactures PASS solely from repository heuristics', () => {
     const result = scanRepository(root, cfg());
     for (const layer of Object.values(result.statuses)) assert.notEqual(layer.status, 'PASS');
     assert.match(toMarkdown(result, cfg()), /not an independent penetration test/i);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('required security headers are detected from Helmet plus explicit Permissions-Policy', () => {
+  const files = [{ path: 'src/server.js', text: "app.use(helmet()); app.use((req,res,next)=>{ res.setHeader('Permissions-Policy','camera=(), microphone=()'); next(); });" }];
+  const result = analyzeSecurityHeaders(files, {
+    mode: 'required',
+    applicability: 'web',
+    required: ['content-security-policy','strict-transport-security','x-content-type-options','referrer-policy','permissions-policy','frame-protection']
+  });
+  assert.deepEqual(result.missing, []);
+});
+
+test('web application missing header baseline produces blocking P1 finding', () => {
+  const root = tempRepo({ 'package.json': JSON.stringify({ dependencies: { express: '^5.0.0' } }), 'src/server.js': "const express=require('express'); const app=express();" });
+  try {
+    const config = cfg('audit');
+    config.security.headers.mode = 'required';
+    config.security.headers.applicability = 'web';
+    const result = scanRepository(root, config);
+    const finding = result.findings.find((f) => f.id === 'SECURITY_HEADERS_INCOMPLETE');
+    assert.equal(finding.severity, 'P1');
+    assert.ok(result.securityHeaders.missing.includes('content-security-policy'));
+    assert.ok(result.securityHeaders.missing.includes('permissions-policy'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
