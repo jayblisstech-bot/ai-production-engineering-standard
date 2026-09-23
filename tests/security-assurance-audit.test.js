@@ -213,3 +213,15 @@ test('username password example database URL is recognized as placeholder', () =
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('verified runtime headers satisfy the APES header baseline even without repository implementation evidence', () => {
+  const files = [{ path: 'src/server.js', text: "const express=require('express'); const app=express();" }];
+  const result = analyzeSecurityHeaders(files, {
+    mode: 'required',
+    applicability: 'web',
+    required: ['content-security-policy','strict-transport-security','x-content-type-options','referrer-policy','permissions-policy','frame-protection']
+  }, true);
+  assert.equal(result.runtimeVerified, true);
+  assert.deepEqual(result.missing, []);
+  assert.equal(result.present.length, 6);
+});
