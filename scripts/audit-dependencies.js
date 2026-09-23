@@ -20,32 +20,32 @@ function commandFor(pm) {
 function auditOne(root, mode) {
   const pkgPath = path.join(root, 'package.json');
   if (!fs.existsSync(pkgPath)) {
-    const msg = \`Dependency audit requested but package.json is missing in \${root}.\`;
+    const msg = `Dependency audit requested but package.json is missing in ${root}.`;
     if (mode === 'required') throw new Error(msg);
-    console.warn(\`WARNING: \${msg}\`);
+    console.warn(`WARNING: ${msg}`);
     return { root, status: 'unsupported' };
   }
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
   const pm = detectPackageManager(root, pkg);
   const lockExists = fs.existsSync(path.join(root, 'package-lock.json')) || fs.existsSync(path.join(root, 'pnpm-lock.yaml')) || fs.existsSync(path.join(root, 'yarn.lock'));
   if (!lockExists) {
-    const msg = \`Dependency audit requested but no supported lockfile exists in \${root}.\`;
+    const msg = `Dependency audit requested but no supported lockfile exists in ${root}.`;
     if (mode === 'required') throw new Error(msg);
-    console.warn(\`WARNING: \${msg}\`);
+    console.warn(`WARNING: ${msg}`);
     return { root, status: 'unsupported' };
   }
   const [cmd, args] = commandFor(pm);
-  console.log(\`$ \${cmd} \${args.join(' ')} (cwd=\${root})\`);
+  console.log(`$ ${cmd} ${args.join(' ')} (cwd=${root})`);
   const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' });
   if (r.error) {
     if (mode === 'required') throw r.error;
-    console.warn(\`WARNING: dependency audit could not run: \${r.error.message}\`);
+    console.warn(`WARNING: dependency audit could not run: ${r.error.message}`);
     return { root, status: 'warning' };
   }
   if (r.status !== 0) {
-    const msg = \`Dependency audit reported high/critical vulnerabilities or failed in \${root} (exit \${r.status}).\`;
+    const msg = `Dependency audit reported high/critical vulnerabilities or failed in ${root} (exit ${r.status}).`;
     if (mode === 'required') throw new Error(msg);
-    console.warn(\`WARNING: \${msg}\`);
+    console.warn(`WARNING: ${msg}`);
     return { root, status: 'warning' };
   }
   return { root, status: 'passed', packageManager: pm.name };
@@ -53,7 +53,7 @@ function auditOne(root, mode) {
 
 function runDependencyAudit({ projectRoot, config }) {
   const mode = config.security?.dependencyAudit || 'off';
-  if (!['off', 'optional', 'required'].includes(mode)) throw new Error(\`Invalid security.dependencyAudit mode: \${mode}\`);
+  if (!['off', 'optional', 'required'].includes(mode)) throw new Error(`Invalid security.dependencyAudit mode: ${mode}`);
   if (mode === 'off') {
     console.log('Dependency audit disabled by .apes.json.');
     return { mode, status: 'skipped' };
