@@ -153,10 +153,20 @@ function analyzeSecurityHeaders(runtimeFiles, headerConfig) {
     return { applicable: false, mode: headerConfig.mode, missing: [], present: [], evidenceFiles: [] };
   }
 
+  const headerVerifierPatterns = [
+    '**/scripts/verify-security-headers.*',
+    '**/scripts/check-security-headers.*',
+    '**/scripts/security-headers.*',
+    '**/security-headers.test.*',
+    '**/security-headers.spec.*',
+    '**/verify-security-headers.*',
+    '**/check-security-headers.*'
+  ];
+  const evidenceCandidates = runtimeFiles.filter(({ path }) => !matchesAny(path, headerVerifierPatterns));
   const required = headerConfig.required || [];
-  const present = required.filter((name) => hasHeaderEvidence(name, runtimeFiles));
+  const present = required.filter((name) => hasHeaderEvidence(name, evidenceCandidates));
   const missing = required.filter((name) => !present.includes(name));
-  const evidenceFiles = runtimeFiles
+  const evidenceFiles = evidenceCandidates
     .filter(({ text }) => /Content-Security-Policy|Strict-Transport-Security|X-Content-Type-Options|Referrer-Policy|Permissions-Policy|X-Frame-Options|frame-ancestors|\bhelmet\b/i.test(text))
     .map(({ path }) => path)
     .slice(0, 12);
