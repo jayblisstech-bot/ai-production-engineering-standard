@@ -24,3 +24,11 @@ test('removing authorization logic from an ordinary service escalates to HIGH', 
   assert.equal(c(['src/services/user.ts'], diff).risk, 'HIGH');
 });
 test('package manifest and lockfile changes are HIGH supply-chain risk', () => { assert.equal(c(['package.json']).risk, 'HIGH'); assert.equal(c(['pnpm-lock.yaml']).risk, 'HIGH'); });
+
+test('deployment and incident-response code changes are CRITICAL', () => {
+  assert.equal(c(['deploy/production.ts']).risk, 'CRITICAL');
+  assert.equal(c(['src/incident/rotate-keys.ts']).risk, 'CRITICAL');
+});
+test('websocket security path changes are CRITICAL', () => {
+  assert.equal(c(['src/sockets/live-chat.ts']).risk, 'CRITICAL');
+});
