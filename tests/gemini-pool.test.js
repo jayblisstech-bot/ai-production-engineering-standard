@@ -113,3 +113,73 @@ test('Gemini 403 quarantines only the credential+model pair, not the whole crede
     assert.ok(['p1','p2'].includes(b.credentialId));
   } finally { global.fetch = oldFetch; }
 });
+
+
+test('Gemini request sends configured thinking level and omits deprecated temperature sampling', async () => {
+  const oldFetch = global.fetch;
+  let requestBody = null;
+  global.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return response(200, okBody());
+  };
+  try {
+    const pool = new GeminiCredentialPool([{ id: 'p1', key: 'k1' }], { maxRetriesPerCredential: 0 });
+    await pool.request('gemini-3.8-flash', 's', 'u', { thinkingLevel: 'high' });
+    assert.deepEqual(requestBody.generationConfig.thinkingConfig, { thinkingLevel: 'high' });
+    assert.equal(Object.prototype.hasOwnProperty.call(requestBody.generationConfig, 'temperature'), false);
+  } finally { global.fetch = oldFetch; }
+});
+
+test('repeated 5xx failures across a bounded number of credentials fall back without exhausting the full pool', async () => {
+  const oldFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    return response(503, 'overloaded');
+  };
+  try {
+    const pool = new GeminiCredentialPool([
+      { id: 'p1', key: 'k1' },
+      { id: 'p2', key: 'k2' },
+      { id: 'p3', key: 'k3' },
+      { id: 'p4', key: 'k4' },
+    ], {
+      maxRetriesPerCredential: 0,
+      maxTransientCredentialsPerModel: 2,
+      transientCooldownMs: 1000,
+    });
+    await assert.rejects(
+      () => pool.request('gemini-3.8-flash', 's', 'u'),
+      (err) => err.code === 'MODEL_TRANSIENT_UNAVAILABLE' && /without exhausting the full key pool/.test(err.message)
+    );
+    assert.equal(calls.length, 2);
+    assert.ok(calls.some((u) => u.includes('key=k1')));
+    assert.ok(calls.some((u) => u.includes('key=k2')));
+    assert.equal(calls.some((u) => u.includes('key=k3')), false);
+    assert.equal(calls.some((u) => u.includes('key=k4')), false);
+  } finally { global.fetch = oldFetch; }
+});
+
+test('429 remains credential-specific and continues rotating across the pool', async () => {
+  const oldFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url) => {
+    const u = String(url); calls.push(u);
+    if (u.includes('key=k1') || u.includes('key=k2')) return response(429, 'quota');
+    return response(200, okBody());
+  };
+  try {
+    const pool = new GeminiCredentialPool([
+      { id: 'p1', key: 'k1' },
+      { id: 'p2', key: 'k2' },
+      { id: 'p3', key: 'k3' },
+    ], {
+      maxRetriesPerCredential: 0,
+      maxTransientCredentialsPerModel: 1,
+      cooldown429Ms: 1000,
+    });
+    const out = await pool.request('gemini-3.8-flash', 's', 'u', { thinkingLevel: 'medium' });
+    assert.equal(out.credentialId, 'p3');
+    assert.equal(calls.length, 3);
+  } finally { global.fetch = oldFetch; }
+});

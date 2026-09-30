@@ -88,6 +88,7 @@ class HermesOrchestrator {
       cooldown429Ms: config.review.routing.geminiPool.cooldown429Ms,
       transientCooldownMs: config.review.routing.geminiPool.transientCooldownMs,
       maxRetriesPerCredential: config.review.routing.geminiPool.maxRetriesPerCredential,
+      maxTransientCredentialsPerModel: config.review.routing.geminiPool.maxTransientCredentialsPerModel,
       backoffBaseMs: config.review.routing.geminiPool.backoffBaseMs,
     }) : null);
   }
@@ -123,11 +124,12 @@ class HermesOrchestrator {
     }
   }
 
-  async callCandidate(provider, model, systemPrompt, userPrompt) {
+  async callCandidate(provider, model, systemPrompt, userPrompt, capability) {
     const timeoutMs = Number(this.config.review.requestTimeoutMs || 90000);
     if (provider === 'gemini') {
       if (!this.geminiPool) throw Object.assign(new Error('No Gemini credential pool is configured.'), { fallbackEligible: true });
-      return this.geminiPool.request(model, systemPrompt, userPrompt);
+      const thinkingLevel = this.config.review.routing.geminiThinkingLevel[capability];
+      return this.geminiPool.request(model, systemPrompt, userPrompt, { thinkingLevel });
     }
     const client = this.clients[provider];
     if (!client) throw Object.assign(new Error(`No client implemented for provider ${provider}.`), { fallbackEligible: true });
@@ -148,7 +150,7 @@ class HermesOrchestrator {
           }
           let response;
           try {
-            response = await this.callCandidate(provider, model, systemPrompt, userPrompt);
+            response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability);
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'response' });
           } catch (err) {
             errors.push(`${provider}:${model}: ${err.message}`);

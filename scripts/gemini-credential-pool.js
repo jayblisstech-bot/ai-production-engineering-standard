@@ -2,12 +2,11 @@
 /**
  * Gemini credential-pool client.
  *
- * Core invariant:
- *   select model -> rotate credentials for THAT model -> only then try next model.
- *
- * Credentials are identified by opaque ids and keys are never returned in telemetry.
- * State is in-memory for the lifetime of the Hermes process, so completed review
- * chunks are not repeated and keys cooling down on a model are avoided by later chunks.
+ * Core invariants:
+ *   - 401/403/429 are credential/project-sensitive, so rotate credentials on the same model.
+ *   - repeated network/5xx failures across distinct credentials indicate a likely model/provider
+ *     outage, so bound the blast radius and fall back to the next approved model.
+ *   - API keys are never returned in telemetry.
  */
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -70,11 +69,13 @@ class GeminiCredentialPool {
     this.credentials = credentials.map((c) => ({ ...c, disabled: false }));
     this.cursor = 0;
     this.modelCooldowns = new Map();
+    this.transientModelCooldowns = new Map();
     this.modelUnavailable = new Set();
     this.timeoutMs = Number(options.timeoutMs || 90000);
     this.cooldown429Ms = Number(options.cooldown429Ms || 60000);
-    this.transientCooldownMs = Number(options.transientCooldownMs || 5000);
+    this.transientCooldownMs = Number(options.transientCooldownMs || 15000);
     this.maxRetriesPerCredential = Number(options.maxRetriesPerCredential ?? 1);
+    this.maxTransientCredentialsPerModel = Number(options.maxTransientCredentialsPerModel ?? 2);
     this.backoffBaseMs = Number(options.backoffBaseMs || 500);
     this.telemetry = [];
   }
@@ -95,9 +96,15 @@ class GeminiCredentialPool {
   }
 
   markCooldown(credentialId, model, ms, reason) {
-    const until = Date.now() + Math.max(0, Number(ms) || 0);
-    this.modelCooldowns.set(this.stateKey(credentialId, model), until);
-    this.telemetry.push({ provider: 'gemini', credentialId, model, event: 'cooldown', reason, cooldownMs: Math.max(0, Number(ms) || 0) });
+    const cooldownMs = Math.max(0, Number(ms) || 0);
+    this.modelCooldowns.set(this.stateKey(credentialId, model), Date.now() + cooldownMs);
+    this.telemetry.push({ provider: 'gemini', credentialId, model, event: 'cooldown', reason, cooldownMs });
+  }
+
+  markTransientModelCooldown(model, reason) {
+    const cooldownMs = Math.max(1000, this.transientCooldownMs);
+    this.transientModelCooldowns.set(model, Date.now() + cooldownMs);
+    this.telemetry.push({ provider: 'gemini', model, event: 'model-transient-cooldown', reason, cooldownMs });
   }
 
   disableCredential(credentialId, reason) {
@@ -106,25 +113,44 @@ class GeminiCredentialPool {
     this.telemetry.push({ provider: 'gemini', credentialId, event: 'credential-disabled', reason });
   }
 
-  async request(model, systemPrompt, userPrompt) {
-    if (this.modelUnavailable.has(model)) throw Object.assign(new Error(`Gemini model ${model} is marked unavailable for this run.`), { code: 'MODEL_UNAVAILABLE' });
+  async request(model, systemPrompt, userPrompt, options = {}) {
+    if (this.modelUnavailable.has(model)) {
+      throw Object.assign(new Error(`Gemini model ${model} is marked unavailable for this run.`), { code: 'MODEL_UNAVAILABLE', fallbackEligible: true });
+    }
+    const modelCooldownUntil = this.transientModelCooldowns.get(model) || 0;
+    if (modelCooldownUntil > Date.now()) {
+      throw Object.assign(new Error(`Gemini model ${model} is cooling down after repeated transient provider failures.`), { code: 'MODEL_TRANSIENT_UNAVAILABLE', fallbackEligible: true });
+    }
+
+    const thinkingLevel = options.thinkingLevel || null;
+    if (thinkingLevel && !['low', 'medium', 'high'].includes(thinkingLevel)) {
+      throw new Error(`Unsupported Gemini thinking level: ${thinkingLevel}`);
+    }
+
     const candidates = this.availableCredentials(model);
-    if (!candidates.length) throw Object.assign(new Error(`No healthy Gemini credentials remain for model ${model}.`), { code: 'MODEL_POOL_EXHAUSTED' });
+    if (!candidates.length) throw Object.assign(new Error(`No healthy Gemini credentials remain for model ${model}.`), { code: 'MODEL_POOL_EXHAUSTED', fallbackEligible: true });
 
     const errors = [];
+    let transientCredentialFailures = 0;
+
     for (const { credential, index } of candidates) {
       this.cursor = (index + 1) % this.credentials.length;
+      let credentialTransientFailure = false;
+
       for (let attempt = 0; attempt <= this.maxRetriesPerCredential; attempt++) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(credential.key)}`;
         let res;
         try {
+          const generationConfig = { responseMimeType: 'application/json' };
+          if (thinkingLevel) generationConfig.thinkingConfig = { thinkingLevel };
+
           res = await fetchWithTimeout(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: systemPrompt }] },
               contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-              generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+              generationConfig,
             }),
           }, this.timeoutMs);
         } catch (err) {
@@ -135,6 +161,7 @@ class GeminiCredentialPool {
             continue;
           }
           this.markCooldown(credential.id, model, this.transientCooldownMs, 'network');
+          credentialTransientFailure = true;
           break;
         }
 
@@ -147,7 +174,7 @@ class GeminiCredentialPool {
             this.markCooldown(credential.id, model, this.transientCooldownMs, 'empty-response');
             break;
           }
-          this.telemetry.push({ provider: 'gemini', credentialId: credential.id, model, event: 'success' });
+          this.telemetry.push({ provider: 'gemini', credentialId: credential.id, model, event: 'success', thinkingLevel });
           return { text, provider: 'gemini', model, credentialId: credential.id };
         }
 
@@ -182,25 +209,38 @@ class GeminiCredentialPool {
             continue;
           }
           this.markCooldown(credential.id, model, this.transientCooldownMs, `HTTP ${res.status}`);
+          credentialTransientFailure = true;
           break;
         }
         throw Object.assign(new Error(`Gemini ${model} failed with HTTP ${res.status}: ${body.slice(0, 500)}`), { code: 'REQUEST_REJECTED', fallbackEligible: false });
       }
+
+      if (credentialTransientFailure) {
+        transientCredentialFailures += 1;
+        if (transientCredentialFailures >= this.maxTransientCredentialsPerModel) {
+          this.markTransientModelCooldown(model, 'repeated-network-or-5xx');
+          throw Object.assign(
+            new Error(`Gemini model ${model} hit transient provider failures across ${transientCredentialFailures} distinct credentials; falling back without exhausting the full key pool. ${errors.join(' | ')}`),
+            { code: 'MODEL_TRANSIENT_UNAVAILABLE', fallbackEligible: true }
+          );
+        }
+      }
     }
+
     throw Object.assign(new Error(`Gemini credential pool exhausted for model ${model}. ${errors.join(' | ')}`), { code: 'MODEL_POOL_EXHAUSTED', fallbackEligible: true });
   }
 
-  async callModels(models, systemPrompt, userPrompt) {
+  async callModels(models, systemPrompt, userPrompt, options = {}) {
     if (!Array.isArray(models) || !models.length) throw new Error('No Gemini models configured for the requested capability.');
     const errors = [];
     for (const model of models) {
-      try { return await this.request(model, systemPrompt, userPrompt); }
+      try { return await this.request(model, systemPrompt, userPrompt, options); }
       catch (err) {
         errors.push(`${model}: ${err.message}`);
         if (err.fallbackEligible === false) throw err;
       }
     }
-    throw Object.assign(new Error(`Gemini model cascade exhausted after credential rotation. ${errors.join(' | ')}`), { fallbackEligible: true, code: 'GEMINI_EXHAUSTED' });
+    throw Object.assign(new Error(`Gemini model cascade exhausted after bounded credential rotation. ${errors.join(' | ')}`), { fallbackEligible: true, code: 'GEMINI_EXHAUSTED' });
   }
 
   publicTelemetry() { return this.telemetry.map((x) => ({ ...x })); }

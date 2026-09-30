@@ -76,15 +76,21 @@ const DEFAULT_CONFIG = {
           advanced: ['claude-opus-5']
         },
         gemini: {
-          medium: ['gemini-3.5-flash-lite', 'gemini-3.6-flash'],
-          strong: ['gemini-3.8-flash', 'gemini-3.6-flash'],
-          advanced: ['gemini-2.5-pro', 'gemini-3.8-flash']
+          medium: ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash'],
+          strong: ['gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-3.6-flash'],
+          advanced: ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.7-flash']
         }
+      },
+      geminiThinkingLevel: {
+        medium: 'low',
+        strong: 'medium',
+        advanced: 'high'
       },
       geminiPool: {
         cooldown429Ms: 60000,
-        transientCooldownMs: 5000,
+        transientCooldownMs: 15000,
         maxRetriesPerCredential: 1,
+        maxTransientCredentialsPerModel: 2,
         backoffBaseMs: 500
       }
     }
@@ -220,6 +226,13 @@ function validateConfigSemantics(config) {
       }
     }
   }
+  const allowedThinkingLevels = new Set(['low', 'medium', 'high']);
+  for (const tier of ['medium', 'strong', 'advanced']) {
+    const level = config.review.routing.geminiThinkingLevel[tier];
+    if (!allowedThinkingLevels.has(level)) {
+      throw new Error(`review.routing.geminiThinkingLevel.${tier} must be one of: low, medium, high.`);
+    }
+  }
   const bounded = [
     ['context.maxContextChars', config.context.maxContextChars, 1000, 250000],
     ['context.maxPerFileChars', config.context.maxPerFileChars, 500, 100000],
@@ -229,6 +242,7 @@ function validateConfigSemantics(config) {
     ['review.routing.geminiPool.cooldown429Ms', config.review.routing.geminiPool.cooldown429Ms, 1000, 3600000],
     ['review.routing.geminiPool.transientCooldownMs', config.review.routing.geminiPool.transientCooldownMs, 100, 300000],
     ['review.routing.geminiPool.maxRetriesPerCredential', config.review.routing.geminiPool.maxRetriesPerCredential, 0, 5],
+    ['review.routing.geminiPool.maxTransientCredentialsPerModel', config.review.routing.geminiPool.maxTransientCredentialsPerModel, 1, 20],
     ['review.routing.geminiPool.backoffBaseMs', config.review.routing.geminiPool.backoffBaseMs, 50, 30000],
     ['security.assurance.maxFiles', config.security.assurance.maxFiles, 1, 20000],
     ['security.assurance.maxFileBytes', config.security.assurance.maxFileBytes, 1024, 10485760],

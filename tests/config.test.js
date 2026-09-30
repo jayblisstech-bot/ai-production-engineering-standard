@@ -28,3 +28,35 @@ test('unsupported required security header fails loudly', () => { withConfig({ v
 
 test('security header runtime URL accepts HTTPS', () => { withConfig({ version: 1, security: { headers: { runtimeUrl: 'https://example.com' } } }, (root) => { const cfg = loadConfig(root); assert.equal(cfg.security.headers.runtimeUrl, 'https://example.com'); }); });
 test('security header runtime URL rejects non-HTTPS', () => { withConfig({ version: 1, security: { headers: { runtimeUrl: 'http://example.com' } } }, (root) => { assert.throws(() => loadConfig(root), /runtimeUrl must be empty or an HTTPS URL/); }); });
+
+
+test('Gemini defaults reserve Pro for advanced reasoning and use Flash for lower tiers', () => {
+  withConfig({ version: 1 }, (root) => {
+    const cfg = loadConfig(root);
+    assert.deepEqual(cfg.review.routing.modelCatalog.gemini.medium, ['gemini-3.5-flash-lite', 'gemini-3.5-flash', 'gemini-3.6-flash']);
+    assert.deepEqual(cfg.review.routing.modelCatalog.gemini.strong, ['gemini-3.7-flash', 'gemini-3.8-flash', 'gemini-3.6-flash']);
+    assert.deepEqual(cfg.review.routing.modelCatalog.gemini.advanced, ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.7-flash']);
+    assert.equal(cfg.review.routing.modelCatalog.gemini.medium.includes('gemini-3.1-pro-preview'), false);
+    assert.equal(cfg.review.routing.modelCatalog.gemini.strong.includes('gemini-3.1-pro-preview'), false);
+  });
+});
+
+test('Gemini capability tiers map to bounded thinking levels', () => {
+  withConfig({ version: 1 }, (root) => {
+    const cfg = loadConfig(root);
+    assert.deepEqual(cfg.review.routing.geminiThinkingLevel, { medium: 'low', strong: 'medium', advanced: 'high' });
+  });
+});
+
+test('unsupported Gemini thinking levels fail loudly', () => {
+  withConfig({ version: 1, review: { routing: { geminiThinkingLevel: { advanced: 'extreme' } } } }, (root) => {
+    assert.throws(() => loadConfig(root), /geminiThinkingLevel\.advanced/);
+  });
+});
+
+test('Gemini transient provider fanout is bounded', () => {
+  withConfig({ version: 1, review: { routing: { geminiPool: { maxTransientCredentialsPerModel: 2 } } } }, (root) => {
+    const cfg = loadConfig(root);
+    assert.equal(cfg.review.routing.geminiPool.maxTransientCredentialsPerModel, 2);
+  });
+});
