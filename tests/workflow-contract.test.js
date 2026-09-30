@@ -5,6 +5,15 @@ const assuranceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 
 const RUNTIME_SHA = '4f02a1ed79fb972998623a62c05a254e0e450687';
 test('reusable workflow declares all Hermes provider secrets', () => { for (const name of ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GEMINI_API_KEYS_JSON']) assert.match(workflow, new RegExp(`${name}:`)); });
 test('provider secrets are passed only in the AI review section, not deterministic execution jobs', () => { const deterministic = workflow.slice(workflow.indexOf('  deterministic-checks:'), workflow.indexOf('  ai-review:')); assert.doesNotMatch(deterministic, /OPENROUTER_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY/); const ai = workflow.slice(workflow.indexOf('  ai-review:'), workflow.indexOf('  quality-gate:')); assert.match(ai, /OPENAI_API_KEY/); assert.match(ai, /ANTHROPIC_API_KEY/); assert.match(ai, /GEMINI_API_KEYS_JSON/); });
+test('AI review security scan verifies configured runtime headers before repository assurance', () => {
+  const securityScan = workflow.slice(workflow.indexOf('  security-scan:'), workflow.indexOf('  deterministic-checks:'));
+  assert.match(securityScan, /verify-configured-security-headers\.js/);
+  assert.match(securityScan, /APES_CONFIG_PATH: \/tmp\/apes-trusted\.json/);
+  assert.ok(
+    securityScan.indexOf('verify-configured-security-headers.js') < securityScan.indexOf('security-assurance-audit.js'),
+    'runtime security headers should be verified before AI-review repository assurance'
+  );
+});
 test('production caller and central default pin the reviewed runtime by exact SHA', () => { assert.match(workflow, new RegExp(`default: ${RUNTIME_SHA}`)); assert.match(template, new RegExp(`@${RUNTIME_SHA}`)); assert.match(template, new RegExp(`pipeline_ref: ${RUNTIME_SHA}`)); assert.doesNotMatch(template, /@v\d+\.\d+\.\d+/); });
 
 test('standalone assurance workflow runs configured repository validation before scanning', () => {
