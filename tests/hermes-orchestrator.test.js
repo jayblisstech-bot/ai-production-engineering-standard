@@ -89,3 +89,39 @@ test('OpenRouter topology falls back to Gemini without consuming direct keys whe
   const out = await hermes.review({ modelTier: 'medium', systemPrompt: 's', userPrompt: 'u', validate: () => ({ needs_escalation: false }) });
   assert.equal(out.provider, 'gemini'); assert.deepEqual(calls, ['openrouter:or-medium', 'gemini:gemini-medium']);
 });
+
+
+test('Hermes passes tier-specific Gemini thinking effort to the credential pool', async () => {
+  const config = cfg();
+  config.review.allowedExternalProviders = ['gemini'];
+  config.review.routing.mode = 'gemini';
+  config.review.routing.modelCatalog.gemini = {
+    medium: ['gemini-medium'],
+    strong: ['gemini-strong'],
+    advanced: ['gemini-advanced'],
+  };
+  const calls = [];
+  const fakeGeminiPool = {
+    request: async (model, _systemPrompt, _userPrompt, options) => {
+      calls.push({ model, options });
+      return { text: '{"findings":[]}', provider: 'gemini', model, credentialId: 'g1' };
+    },
+    publicTelemetry: () => [],
+  };
+  const hermes = new HermesOrchestrator({
+    config,
+    env: { GEMINI_API_KEY: 'g' },
+    geminiPool: fakeGeminiPool,
+  });
+  const validate = (text) => JSON.parse(text);
+
+  await hermes.review({ modelTier: 'medium', systemPrompt: 's', userPrompt: 'routine', validate });
+  await hermes.review({ modelTier: 'strong', systemPrompt: 's', userPrompt: 'complex', validate });
+  await hermes.review({ modelTier: 'advanced', systemPrompt: 's', userPrompt: 'critical', validate });
+
+  assert.deepEqual(calls, [
+    { model: 'gemini-medium', options: { thinkingLevel: 'low' } },
+    { model: 'gemini-strong', options: { thinkingLevel: 'medium' } },
+    { model: 'gemini-advanced', options: { thinkingLevel: 'high' } },
+  ]);
+});
