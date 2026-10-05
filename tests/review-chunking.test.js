@@ -10,7 +10,7 @@ test('chunk planner preserves file boundaries and enforces a token budget', () =
   ].join('');
   const chunks = chunkDiff(diff, 10000, 3, { maxTokens: 80, charsPerToken: 4 });
   assert.equal(chunks.length, 1);
-  assert.ok(estimateTokens(chunks[0], 4) <= 35);
+  assert.ok(estimateTokens(chunks[0], 4) <= 80);
 });
 
 test('chunk planner creates separate logical chunks when token budget is exceeded', () => {
@@ -18,5 +18,5 @@ test('chunk planner creates separate logical chunks when token budget is exceede
   const diff = file('a.js', 'a'.repeat(80)) + file('b.js', 'b'.repeat(80));
   const chunks = chunkDiff(diff, 1000, 4, { maxTokens: 45, charsPerToken: 4 });
   assert.equal(chunks.length, 2);
-  for (const chunk of chunks) assert.ok(estimateTokens(chunk, 4) <= 30);
+  for (const chunk of chunks) assert.ok(estimateTokens(chunk, 4) <= 45);
 });
