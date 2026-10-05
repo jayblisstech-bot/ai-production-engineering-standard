@@ -4,8 +4,9 @@
  *
  * Core invariants:
  *   - 401/403/429 are credential/project-sensitive, so rotate credentials on the same model.
- *   - repeated network/5xx failures across distinct credentials indicate a likely model/provider
- *     outage, so bound the blast radius and fall back to the next approved model.
+ *   - repeated network/5xx failures are evaluated across independent credentials before model
+ *     fallback. APES credentials are expected to represent independent account/project capacity
+ *     boundaries; transient failure on one credential must not discard healthy capacity on others.
  *   - API keys are never returned in telemetry.
  */
 
@@ -75,7 +76,7 @@ class GeminiCredentialPool {
     this.cooldown429Ms = Number(options.cooldown429Ms || 60000);
     this.transientCooldownMs = Number(options.transientCooldownMs || 15000);
     this.maxRetriesPerCredential = Number(options.maxRetriesPerCredential ?? 1);
-    this.maxTransientCredentialsPerModel = Number(options.maxTransientCredentialsPerModel ?? 2);
+    this.maxTransientCredentialsPerModel = Number(options.maxTransientCredentialsPerModel ?? this.credentials.length);
     this.backoffBaseMs = Number(options.backoffBaseMs || 500);
     this.telemetry = [];
   }
@@ -217,10 +218,10 @@ class GeminiCredentialPool {
 
       if (credentialTransientFailure) {
         transientCredentialFailures += 1;
-        if (transientCredentialFailures >= this.maxTransientCredentialsPerModel) {
+        if (transientCredentialFailures >= Math.min(this.maxTransientCredentialsPerModel, this.credentials.length)) {
           this.markTransientModelCooldown(model, 'repeated-network-or-5xx');
           throw Object.assign(
-            new Error(`Gemini model ${model} hit transient provider failures across ${transientCredentialFailures} distinct credentials; falling back without exhausting the full key pool. ${errors.join(' | ')}`),
+            new Error(`Gemini model ${model} hit transient provider failures across ${transientCredentialFailures} distinct credentials; falling back only after the configured independent-credential transient budget is exhausted. ${errors.join(' | ')}`),
             { code: 'MODEL_TRANSIENT_UNAVAILABLE', fallbackEligible: true }
           );
         }
