@@ -202,6 +202,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: read
     needs: [risk-classify, deterministic-checks, security-scan]
     if: ${{ success() && needs.risk-classify.outputs.model_tier != 'skip' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     outputs:
@@ -240,6 +241,49 @@ jobs:
           cd project
           git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
           git diff --no-ext-diff --unified=80 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
+      - name: Prepare durable APES checkpoint directory
+        run: mkdir -p "$RUNNER_TEMP/apes-checkpoint"
+
+      - name: Locate previous failed/cancelled run for this PR head
+        id: previous-checkpoint-run
+        if: \${{ github.event.pull_request.number != '' }}
+        env:
+          GH_TOKEN: \${{ github.token }}
+          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
+          CURRENT_RUN_ID: \${{ github.run_id }}
+          REPOSITORY: \${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -fsSL \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/$REPOSITORY/actions/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
+          previous="$(printf '%s' "$response" | jq -r --arg current "$CURRENT_RUN_ID" '
+            [.workflow_runs[]
+              | select((.id|tostring) != $current)
+              | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
+              | .id]
+            | first // empty
+          ')"
+          echo "run_id=$previous" >> "$GITHUB_OUTPUT"
+          if [[ -n "$previous" ]]; then
+            echo "Previous failed/cancelled run with reusable checkpoint: $previous"
+          else
+            echo "No previous failed/cancelled run checkpoint found."
+          fi
+
+      - name: Restore checkpoint from previous failed/cancelled run
+        if: \${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
+        uses: actions/download-artifact@v5
+        with:
+          name: apes-review-checkpoint-\${{ github.event.pull_request.number }}-\${{ github.event.pull_request.head.sha }}
+          path: \${{ runner.temp }}/apes-checkpoint
+          github-token: \${{ github.token }}
+          repository: \${{ github.repository }}
+          run-id: \${{ steps.previous-checkpoint-run.outputs.run_id }}
+
       - name: Run bounded, fail-closed AI review
         id: review
         env:
@@ -260,7 +304,16 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           DIFF_TEXT_PATH: /tmp/pr.diff
           CHANGED_FILES_FILE: /tmp/changed_files.txt
+          APES_CHECKPOINT_PATH: \${{ runner.temp }}/apes-checkpoint/review.json
         run: node pipeline/scripts/call-review-gateway.js
+      - name: Persist APES review checkpoint
+        if: \${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: apes-review-checkpoint-\${{ github.event.pull_request.number }}-\${{ github.event.pull_request.head.sha }}
+          path: \${{ runner.temp }}/apes-checkpoint/review.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   quality-gate:
     runs-on: ubuntu-latest
