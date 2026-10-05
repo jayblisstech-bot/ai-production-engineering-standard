@@ -246,12 +246,12 @@ jobs:
 
       - name: Locate previous failed/cancelled run for this PR head
         id: previous-checkpoint-run
-        if: \${{ github.event.pull_request.number != '' }}
+        if: ${{ github.event.pull_request.number != '' }}
         env:
-          GH_TOKEN: \${{ github.token }}
-          HEAD_SHA: \${{ github.event.pull_request.head.sha }}
-          CURRENT_RUN_ID: \${{ github.run_id }}
-          REPOSITORY: \${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
@@ -275,14 +275,14 @@ jobs:
           fi
 
       - name: Restore checkpoint from previous failed/cancelled run
-        if: \${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
+        if: ${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
         uses: actions/download-artifact@v5
         with:
-          name: apes-review-checkpoint-\${{ github.event.pull_request.number }}-\${{ github.event.pull_request.head.sha }}
-          path: \${{ runner.temp }}/apes-checkpoint
-          github-token: \${{ github.token }}
-          repository: \${{ github.repository }}
-          run-id: \${{ steps.previous-checkpoint-run.outputs.run_id }}
+          name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/apes-checkpoint
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.previous-checkpoint-run.outputs.run_id }}
 
       - name: Run bounded, fail-closed AI review
         id: review
@@ -304,14 +304,14 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           DIFF_TEXT_PATH: /tmp/pr.diff
           CHANGED_FILES_FILE: /tmp/changed_files.txt
-          APES_CHECKPOINT_PATH: \${{ runner.temp }}/apes-checkpoint/review.json
+          APES_CHECKPOINT_PATH: ${{ runner.temp }}/apes-checkpoint/review.json
         run: node pipeline/scripts/call-review-gateway.js
       - name: Persist APES review checkpoint
-        if: \${{ always() }}
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: apes-review-checkpoint-\${{ github.event.pull_request.number }}-\${{ github.event.pull_request.head.sha }}
-          path: \${{ runner.temp }}/apes-checkpoint/review.json
+          name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/apes-checkpoint/review.json
           if-no-files-found: ignore
           retention-days: 7
 
