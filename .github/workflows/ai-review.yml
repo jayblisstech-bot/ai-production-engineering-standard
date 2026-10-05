@@ -276,6 +276,7 @@ jobs:
 
       - name: Restore checkpoint from previous failed/cancelled run
         if: ${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
+        continue-on-error: true
         uses: actions/download-artifact@v5
         with:
           name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
