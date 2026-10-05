@@ -194,7 +194,51 @@ function normalizeReview(raw, lineIndex) {
   return { verdict, findings, needs_escalation: raw.needs_escalation === true, p0_count: counts.P0, p1_count: counts.P1, p2_count: counts.P2, p3_count: counts.P3 };
 }
 
-async function postInlineComment(owner, repo, prNumber, headSha, finding) {
+function findingFingerprint(headSha, finding) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(JSON.stringify({
+    headSha,
+    path: finding.path,
+    line: finding.line,
+    side: finding.side || 'RIGHT',
+    severity: finding.severity,
+    comment: finding.comment,
+  })).digest('hex').slice(0, 16);
+}
+
+function findingMarker(headSha, finding) {
+  return '<!-- APES-FINDING:' + findingFingerprint(headSha, finding) + ' -->';
+}
+
+async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha) {
+  const markers = new Set();
+  for (let page = 1; ; page++) {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100&page=${page}`, {
+      headers: {
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (!res.ok) throw new Error(`Failed to inspect existing inline review comments: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
+    const comments = await res.json();
+    if (!Array.isArray(comments)) throw new Error('GitHub returned an invalid inline-comment collection.');
+    for (const comment of comments) {
+      if (comment.commit_id === headSha && typeof comment.body === 'string') {
+        const match = comment.body.match(/<!-- APES-FINDING:([a-f0-9]{16}) -->/);
+        if (match) markers.add(match[1]);
+      }
+    }
+    if (comments.length < 100) break;
+  }
+  return markers;
+}
+
+async function postInlineComment(owner, repo, prNumber, headSha, finding, existingMarkers = null) {
+  const marker = findingMarker(headSha, finding);
+  const markers = existingMarkers || await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
+  if (markers.has(findingFingerprint(headSha, finding))) return false;
+
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
     method: 'POST',
     headers: {
@@ -204,7 +248,7 @@ async function postInlineComment(owner, repo, prNumber, headSha, finding) {
       'X-GitHub-Api-Version': '2022-11-28',
     },
     body: JSON.stringify({
-      body: `**[${finding.severity}]** ${finding.comment}`,
+      body: `${marker}\n**[${finding.severity}]** ${finding.comment}`,
       commit_id: headSha,
       path: finding.path,
       line: finding.line,
@@ -212,6 +256,8 @@ async function postInlineComment(owner, repo, prNumber, headSha, finding) {
     }),
   });
   if (!res.ok) throw new Error(`Failed to post required inline review comment on ${finding.path}:${finding.line}: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
+  markers.add(findingFingerprint(headSha, finding));
+  return true;
 }
 
 function dedupeFindings(findings) {
@@ -296,7 +342,8 @@ async function main() {
 
   const [owner, repo] = String(process.env.GITHUB_REPOSITORY || '').split('/');
   if (!owner || !repo || !process.env.PR_NUMBER || !process.env.HEAD_SHA || !process.env.GITHUB_TOKEN) throw new Error('GitHub PR context/token is incomplete; required inline comments cannot be guaranteed.');
-  for (const finding of findings) await postInlineComment(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, finding);
+  const existingMarkers = await fetchExistingFindingMarkers(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA);
+  for (const finding of findings) await postInlineComment(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, finding, existingMarkers);
 
   const result = {
     verdict,
@@ -325,4 +372,4 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => { console.error(err.stack || err.message); process.exit(1); });
 }
-module.exports = { chunkDiff, estimateTokens, collectContext, parseJsonObject, normalizeReview, dedupeFindings, postInlineComment };
+module.exports = { chunkDiff, estimateTokens, collectContext, parseJsonObject, normalizeReview, dedupeFindings, findingFingerprint, findingMarker, fetchExistingFindingMarkers, postInlineComment };
