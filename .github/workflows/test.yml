@@ -2,7 +2,7 @@ name: APES Tests
 
 on:
   push:
-    branches: ["main", "feat/**"]
+    branches: ["main"]
   pull_request:
 
 permissions:
