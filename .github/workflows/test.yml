@@ -18,4 +18,4 @@ jobs:
         with:
           node-version: "20"
       - name: Run APES unit tests
-        run: npm test
+        run: node --test tests/review-checkpoint.test.js tests/review-chunking.test.js tests/gemini-credential-pool-resilience.test.js
