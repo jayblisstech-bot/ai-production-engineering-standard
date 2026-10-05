@@ -35,3 +35,34 @@ test('checkpoint refuses a different review identity', () => {
     /identity mismatch/
   );
 });
+
+const { postInlineComment, findingMarker } = require('../scripts/call-review-gateway');
+
+test('inline finding publication is idempotent across reruns', async () => {
+  const originalFetch = global.fetch;
+  const finding = { path: 'src/app.js', line: 42, side: 'RIGHT', severity: 'P1', comment: 'Concrete production defect.' };
+  const headSha = 'head-sha';
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (options.method === 'POST') throw new Error('POST must not occur for an already-published finding.');
+    return {
+      ok: true,
+      async json() {
+        return [{
+          commit_id: headSha,
+          body: findingMarker(headSha, finding) + '\n**[P1]** Concrete production defect.',
+        }];
+      },
+      async text() { return ''; },
+    };
+  };
+  try {
+    const posted = await postInlineComment('owner', 'repo', 7, headSha, finding);
+    assert.equal(posted, false);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].options.method, undefined);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
