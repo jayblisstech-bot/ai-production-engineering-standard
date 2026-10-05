@@ -17,5 +17,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
-      - name: Run APES unit tests
-        run: node --test tests/review-checkpoint.test.js tests/review-chunking.test.js tests/gemini-credential-pool-resilience.test.js
+      - name: Test checkpoint resume and identity
+        run: node --test tests/review-checkpoint.test.js
+      - name: Test token-aware logical chunking
+        run: node --test tests/review-chunking.test.js
+      - name: Test independent Gemini transient rotation
+        run: node --test tests/gemini-credential-pool-resilience.test.js
