@@ -91,7 +91,7 @@ test('maxRetriesPerCredential=0 is honored for transient server failures', async
   global.fetch = async () => { calls++; return response(500, 'server'); };
   try {
     const pool = new GeminiCredentialPool([{ id: 'p1', key: 'k1' }], { maxRetriesPerCredential: 0, transientCooldownMs: 100 });
-    await assert.rejects(() => pool.request('m', 's', 'u'), /pool exhausted/);
+    await assert.rejects(() => pool.request('m', 's', 'u'), (err) => err.code === 'MODEL_TRANSIENT_UNAVAILABLE');
     assert.equal(calls, 1);
   } finally { global.fetch = oldFetch; }
 });
