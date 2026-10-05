@@ -150,7 +150,7 @@ test('repeated 5xx failures across a bounded number of credentials fall back wit
     });
     await assert.rejects(
       () => pool.request('gemini-3.8-flash', 's', 'u'),
-      (err) => err.code === 'MODEL_TRANSIENT_UNAVAILABLE' && /without exhausting the full key pool/.test(err.message)
+      (err) => err.code === 'MODEL_TRANSIENT_UNAVAILABLE' && /configured independent-credential transient budget is exhausted/.test(err.message)
     );
     assert.equal(calls.length, 2);
     assert.ok(calls.some((u) => u.includes('key=k1')));
