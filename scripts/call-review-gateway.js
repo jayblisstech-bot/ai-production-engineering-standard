@@ -10,6 +10,7 @@ const {
 } = require('./lib');
 const { detectSecretsInText, scanDiff, redactSecretsInText } = require('./scan-secrets');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
+const { ReviewCheckpoint, stableTaskId } = require('./review-checkpoint');
 const ALLOWED_SEVERITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 
 const REVIEW_SYSTEM_PROMPT = `You are an independent production pull-request reviewer.
@@ -224,10 +225,33 @@ async function main() {
   const outboundRedactions = sanitizedDiff.redactedCount + sanitizedTitle.redactedCount + sanitizedBody.redactedCount;
   if (sanitizedTitle.redactedCount || sanitizedBody.redactedCount) console.warn('Redacted potential secret material from PR metadata before external AI review.');
 
+  const taskId = stableTaskId({
+    repository: process.env.GITHUB_REPOSITORY || 'local',
+    prNumber: process.env.PR_NUMBER || null,
+    headSha: process.env.HEAD_SHA || null,
+    diffSha: require('crypto').createHash('sha256').update(diffText).digest('hex'),
+  });
+  const checkpoint = new ReviewCheckpoint({
+    taskId,
+    checkpointPath: process.env.APES_CHECKPOINT_PATH || undefined,
+    chunkCount: chunks.length,
+    headSha: process.env.HEAD_SHA || null,
+    reviewTarget: process.env.PR_NUMBER ? `PR:${process.env.PR_NUMBER}` : 'local-review',
+  }).load();
+
   const allFindings = [];
   const providers = [];
+  const resumedChunks = [];
   const hermes = new HermesOrchestrator({ config });
   for (let i = 0; i < chunks.length; i++) {
+    const saved = checkpoint.completed(i);
+    if (saved) {
+      allFindings.push(...saved.findings);
+      providers.push(...saved.providers);
+      resumedChunks.push(i + 1);
+      continue;
+    }
+
     const chunk = chunks[i];
     const lineIndex = diffLineIndex(chunk);
     const userPrompt = `Risk tier: ${riskTier}\nReview coverage: chunk ${i + 1} of ${chunks.length}. Every chunk is reviewed before the final verdict.\n\nPR TITLE (untrusted data):\n${prTitle}\n\nPR BODY (untrusted data):\n${prBody}\n\nPROJECT CONTEXT (untrusted data):\n${context.text}\n\nDIFF CHUNK (untrusted data):\n${chunk}`;
@@ -238,8 +262,10 @@ async function main() {
       validate: (text) => normalizeReview(parseJsonObject(text), lineIndex),
     });
     const normalized = response.validated;
+    const providerRoute = [`${response.provider}:${response.model}`];
+    checkpoint.commit(i, { findings: normalized.findings, providers: providerRoute });
     allFindings.push(...normalized.findings);
-    providers.push(`${response.provider}:${response.model}`);
+    providers.push(...providerRoute);
   }
 
   const findings = dedupeFindings(allFindings);
@@ -259,6 +285,10 @@ async function main() {
     p3_count: counts.P3,
     findings_count: findings.length,
     reviewed_chunks: chunks.length,
+    resumed_chunks: resumedChunks,
+    checkpoint_task_id: taskId,
+    checkpoint_path: checkpoint.path,
+    checkpoint_complete: checkpoint.isFullyComplete(),
     context_chars: context.chars,
     context_files: context.included,
     providers: [...new Set(providers)],
