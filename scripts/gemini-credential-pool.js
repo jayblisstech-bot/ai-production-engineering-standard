@@ -76,7 +76,6 @@ class GeminiCredentialPool {
     this.cooldown429Ms = Number(options.cooldown429Ms || 60000);
     this.transientCooldownMs = Number(options.transientCooldownMs || 15000);
     this.maxRetriesPerCredential = Number(options.maxRetriesPerCredential ?? 1);
-    this.maxTransientCredentialsPerModel = Number(options.maxTransientCredentialsPerModel ?? this.credentials.length);
     this.backoffBaseMs = Number(options.backoffBaseMs || 500);
     this.telemetry = [];
   }
@@ -218,10 +217,10 @@ class GeminiCredentialPool {
 
       if (credentialTransientFailure) {
         transientCredentialFailures += 1;
-        if (transientCredentialFailures >= Math.min(this.maxTransientCredentialsPerModel, this.credentials.length)) {
+        if (transientCredentialFailures >= this.credentials.length) {
           this.markTransientModelCooldown(model, 'repeated-network-or-5xx');
           throw Object.assign(
-            new Error(`Gemini model ${model} hit transient provider failures across ${transientCredentialFailures} distinct credentials; falling back only after the configured independent-credential transient budget is exhausted. ${errors.join(' | ')}`),
+            new Error(`Gemini model ${model} hit transient provider failures across ${transientCredentialFailures} distinct credentials; falling back only after every independent credential is exhausted. ${errors.join(' | ')}`),
             { code: 'MODEL_TRANSIENT_UNAVAILABLE', fallbackEligible: true }
           );
         }
