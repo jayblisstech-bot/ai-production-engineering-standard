@@ -130,7 +130,7 @@ test('Gemini request sends configured thinking level and omits deprecated temper
   } finally { global.fetch = oldFetch; }
 });
 
-test('repeated 5xx failures across a bounded number of credentials fall back without exhausting the full pool', async () => {
+test('repeated 5xx failures exhaust every independent credential before fallback', async () => {
   const oldFetch = global.fetch;
   const calls = [];
   global.fetch = async (url) => {
@@ -145,18 +145,14 @@ test('repeated 5xx failures across a bounded number of credentials fall back wit
       { id: 'p4', key: 'k4' },
     ], {
       maxRetriesPerCredential: 0,
-      maxTransientCredentialsPerModel: 2,
       transientCooldownMs: 1000,
     });
     await assert.rejects(
       () => pool.request('gemini-3.8-flash', 's', 'u'),
-      (err) => err.code === 'MODEL_TRANSIENT_UNAVAILABLE' && /configured independent-credential transient budget is exhausted/.test(err.message)
+      (err) => err.code === 'MODEL_TRANSIENT_UNAVAILABLE' && /every independent credential is exhausted/.test(err.message)
     );
-    assert.equal(calls.length, 2);
-    assert.ok(calls.some((u) => u.includes('key=k1')));
-    assert.ok(calls.some((u) => u.includes('key=k2')));
-    assert.equal(calls.some((u) => u.includes('key=k3')), false);
-    assert.equal(calls.some((u) => u.includes('key=k4')), false);
+    assert.equal(calls.length, 4);
+    for (const key of ['k1', 'k2', 'k3', 'k4']) assert.ok(calls.some((u) => u.includes(`key=${key}`)));
   } finally { global.fetch = oldFetch; }
 });
 
@@ -175,7 +171,6 @@ test('429 remains credential-specific and continues rotating across the pool', a
       { id: 'p3', key: 'k3' },
     ], {
       maxRetriesPerCredential: 0,
-      maxTransientCredentialsPerModel: 1,
       cooldown429Ms: 1000,
     });
     const out = await pool.request('gemini-3.8-flash', 's', 'u', { thinkingLevel: 'medium' });
