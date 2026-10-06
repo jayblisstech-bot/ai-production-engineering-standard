@@ -24,6 +24,10 @@ function classifyHttpFallback(status) {
   return status === 402 || status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+function isContextOverflowMessage(body) {
+  return /(context(?:\s+window|\s+length)?|token(?:s|\s+limit)?|prompt|input).{0,80}(?:too\s+long|too\s+large|exceed|maximum|limit|overflow)|(?:maximum|limit|exceed|overflow).{0,80}(?:context|token|prompt|input)/i.test(String(body || ''));
+}
+
 async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY) {
   if (!key) throw providerError('OPENROUTER_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
@@ -43,6 +47,7 @@ async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = 
     return { text, provider: 'openrouter', model };
   }
   const body = await res.text();
+  if (isContextOverflowMessage(body)) throw providerError(`OpenRouter context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`OpenRouter HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
@@ -82,6 +87,7 @@ async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = proc
     return { text, provider: 'openai', model };
   }
   const body = await res.text();
+  if (isContextOverflowMessage(body)) throw providerError(`OpenAI context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`OpenAI HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
@@ -117,6 +123,7 @@ async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = p
     return { text, provider: 'anthropic', model };
   }
   const body = await res.text();
+  if (isContextOverflowMessage(body)) throw providerError(`Anthropic context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`Anthropic HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
