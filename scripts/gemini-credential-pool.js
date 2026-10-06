@@ -179,6 +179,9 @@ class GeminiCredentialPool {
         }
 
         const body = await res.text();
+        if (/(context(?:\\s+window|\\s+length)?|token(?:s|\\s+limit)?|prompt|input).{0,80}(?:too\\s+long|too\\s+large|exceed|maximum|limit|overflow)|(?:maximum|limit|exceed|overflow).{0,80}(?:context|token|prompt|input)/i.test(body)) {
+          throw Object.assign(new Error(`Gemini context overflow: ${body.slice(0, 500)}`), { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
+        }
         if (res.status === 429) {
           const cooldownMs = retryAfterMs(res, this.cooldown429Ms);
           errors.push(`${credential.id}: HTTP 429`);
