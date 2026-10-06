@@ -153,6 +153,7 @@ class HermesOrchestrator {
             response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability);
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'response' });
           } catch (err) {
+            if (err.code === 'CONTEXT_OVERFLOW') throw err;
             errors.push(`${provider}:${model}: ${err.message}`);
             this.trace.push({ capability, provider, model, event: 'provider-failure', code: err.code || null });
             if (provider !== 'gemini') this.recordProviderFailure(provider, model, err);
