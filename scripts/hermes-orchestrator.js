@@ -88,7 +88,6 @@ class HermesOrchestrator {
       cooldown429Ms: config.review.routing.geminiPool.cooldown429Ms,
       transientCooldownMs: config.review.routing.geminiPool.transientCooldownMs,
       maxRetriesPerCredential: config.review.routing.geminiPool.maxRetriesPerCredential,
-      maxTransientCredentialsPerModel: config.review.routing.geminiPool.maxTransientCredentialsPerModel,
       backoffBaseMs: config.review.routing.geminiPool.backoffBaseMs,
     }) : null);
   }
