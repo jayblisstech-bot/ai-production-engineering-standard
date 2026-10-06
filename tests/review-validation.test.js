@@ -15,9 +15,7 @@ test('accepts LEFT-side findings for removed security logic', () => { const out 
 test('rejects unsupported severity', () => { assert.throws(() => normalizeReview({ findings: [{ path: 'src/x.ts', line: 1, side: 'RIGHT', severity: 'P9', comment: 'bad' }] }, index)); });
 test('rejects finding on an invalid side/line pairing', () => { assert.throws(() => normalizeReview({ findings: [{ path: 'src/x.ts', line: 2, side: 'LEFT', severity: 'P1', comment: 'bad' }] }, index)); });
 test('rejects unsupported diff side', () => { assert.throws(() => normalizeReview({ findings: [{ path: 'src/x.ts', line: 1, side: 'MIDDLE', severity: 'P1', comment: 'bad' }] }, index)); });
-test('parses fenced JSON defensively', () => { assert.deepEqual(parseJsonObject('```json
-{"findings":[]}
-```'), { findings: [] }); });
+test('parses fenced JSON defensively', () => { assert.deepEqual(parseJsonObject('```json\\n{"findings":[]}\\n```'), { findings: [] }); });
 test('chunker does not silently truncate and rejects excessive coverage', () => { const sections = Array.from({ length: 4 }, (_, i) => `diff --git a/f${i}.ts b/f${i}.ts
 --- a/f${i}.ts
 +++ b/f${i}.ts
