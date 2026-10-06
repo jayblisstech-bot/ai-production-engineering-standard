@@ -45,7 +45,7 @@ test('Gemini classifies context-window overflow without rotating or falling back
 
 test('review context compaction preserves complete context sections and adds a marker', () => {
   const context = '\n--- PROJECT CONTEXT: a.md ---\nAAAA\n--- PROJECT CONTEXT: b.md ---\nBBBB\n';
-  const compacted = compactReviewContext(context, 35);
+  const compacted = compactReviewContext(context, 36);
   assert.ok(compacted.includes('a.md'));
   assert.equal(compacted.includes('b.md'), false);
   assert.match(compacted, /COMPACTED/);
