@@ -62,7 +62,7 @@ class ReviewCheckpoint {
       const entry = parsed.completedChunks[key];
       if (!entry || typeof entry !== 'object' || Array.isArray(entry) || entry.chunkIndex !== Number(key) || !Array.isArray(entry.findings) || !Array.isArray(entry.providers) || typeof entry.committedAt !== 'string') throw new Error('Checkpoint chunk entry is malformed.');
       if (entry.findings.some(f => !f || typeof f !== 'object' || Array.isArray(f) || typeof f.path !== 'string' || !Number.isSafeInteger(f.line) || f.line < 1 || !['P0','P1','P2','P3'].includes(f.severity) || typeof f.comment !== 'string' || !['LEFT','RIGHT'].includes(f.side || 'RIGHT'))) throw new Error('Checkpoint findings are malformed.');
-      if (entry.providers.some(p => !p || typeof p !== 'object' || Array.isArray(p))) throw new Error('Checkpoint providers are malformed.');
+      if (entry.providers.some(p => typeof p !== 'string' || !p.trim())) throw new Error('Checkpoint providers are malformed.');
     }
     this.state = parsed;
     return this;
