@@ -51,6 +51,7 @@ test('inline finding publication is idempotent across reruns', async () => {
       async json() {
         return [{
           commit_id: headSha,
+          user: { login: 'github-actions[bot]', id: 41898282 },
           body: findingMarker(headSha, finding) + '\n**[P1]** Concrete production defect.',
         }];
       },
@@ -95,4 +96,25 @@ test('failed atomic rename does not mark in-memory chunk complete', () => {
     assert.equal(cp.isComplete(0), false);
     assert.equal(fs.existsSync(cp.path), false);
   } finally { fs.renameSync = rename; }
+});
+
+test('forged marker by an untrusted user cannot suppress a review finding', async () => {
+  const originalFetch = global.fetch;
+  const finding = { path: 'src/app.js', line: 42, side: 'RIGHT', severity: 'P1', comment: 'Concrete production defect.' };
+  const headSha = 'current-head';
+  let posted = 0;
+  global.fetch = async (_url, options = {}) => {
+    if (options.method === 'POST') {
+      posted++;
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => [{
+      commit_id: headSha, user: { login: 'attacker', id: 25 },
+      body: findingMarker(headSha, finding),
+    }] };
+  };
+  try {
+    assert.equal(await postInlineComment('owner', 'repo', 7, headSha, finding), true);
+    assert.equal(posted, 1);
+  } finally { global.fetch = originalFetch; }
 });
