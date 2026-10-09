@@ -23,3 +23,14 @@ test('checkpoint discovery validates GitHub response schema and propagates jq er
   assert.doesNotMatch(yaml, /done < <\(jq /);
   assert.match(yaml, /done <<< "\$candidates"/);
 });
+
+test('all APES review jobs share a PR-scoped concurrency group', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ai-review.yml'), 'utf8');
+  const group = yaml.match(/^concurrency:\n  group: ([^\n]+)\n  cancel-in-progress: true/m);
+  assert.ok(group, 'the entire reusable workflow must use a shared cancellation group');
+  assert.match(group[1], /github\.repository/);
+  assert.match(group[1], /github\.event\.pull_request\.number/);
+  const ai = yaml.slice(yaml.indexOf('  ai-review:'), yaml.indexOf('  quality-gate:'));
+  assert.match(ai, /pull-requests: write/);
+  assert.doesNotMatch(ai, /^    concurrency:/m, 'AI review must not override the workflow-wide PR lock');
+});
