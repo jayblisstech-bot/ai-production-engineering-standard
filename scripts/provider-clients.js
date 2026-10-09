@@ -47,7 +47,7 @@ async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = 
     return { text, provider: 'openrouter', model };
   }
   const body = await res.text();
-  if (isContextOverflowMessage(body)) throw providerError(`OpenRouter context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
+  if (res.status === 400 && isContextOverflowMessage(body)) throw providerError(`OpenRouter context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`OpenRouter HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
@@ -87,7 +87,7 @@ async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = proc
     return { text, provider: 'openai', model };
   }
   const body = await res.text();
-  if (isContextOverflowMessage(body)) throw providerError(`OpenAI context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
+  if (res.status === 400 && isContextOverflowMessage(body)) throw providerError(`OpenAI context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`OpenAI HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
@@ -123,7 +123,7 @@ async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = p
     return { text, provider: 'anthropic', model };
   }
   const body = await res.text();
-  if (isContextOverflowMessage(body)) throw providerError(`Anthropic context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
+  if (res.status === 400 && isContextOverflowMessage(body)) throw providerError(`Anthropic context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`Anthropic HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
