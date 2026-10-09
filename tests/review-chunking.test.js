@@ -20,3 +20,27 @@ test('chunk planner creates separate logical chunks when token budget is exceede
   assert.equal(chunks.length, 2);
   for (const chunk of chunks) assert.ok(estimateTokens(chunk, 4) <= 45);
 });
+
+test('oversized multi-hunk file splits at the effective token budget without losing diff content', () => {
+  const header = 'diff --git a/big.js b/big.js\nindex 1..2 100644\n--- a/big.js\n+++ b/big.js\n';
+  const hunks = Array.from({ length: 5 }, (_, i) => `@@ -${i + 1},1 +${i + 1},1 @@\n+${String(i).repeat(90)}\n`);
+  const chunks = chunkDiff(header + hunks.join(''), 1500, 12, { maxTokens: 70, charsPerToken: 4 });
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= 280);
+    assert.ok(estimateTokens(chunk, 4) <= 70);
+    assert.ok(chunk.startsWith(header));
+  }
+  const restored = chunks.map((chunk) => chunk.slice(header.length)).join('');
+  assert.equal(restored, hunks.join(''));
+});
+for (const options of [
+  { maxTokens: 0, charsPerToken: 4 },
+  { maxTokens: Infinity, charsPerToken: 4 },
+  { maxTokens: 100, charsPerToken: 0 },
+  { maxTokens: 100, charsPerToken: NaN },
+]) {
+  test('chunk planner rejects unsafe token configuration ' + JSON.stringify(options), () => {
+    assert.throws(() => chunkDiff('diff --git a/a b/a\n+x', 500, 12, options), /must be/);
+  });
+}
