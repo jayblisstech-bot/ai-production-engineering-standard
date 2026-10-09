@@ -28,7 +28,7 @@ test('provider client classifies context-window overflow without provider fallba
 test('Gemini classifies context-window overflow without rotating or falling back', async () => {
   const oldFetch = global.fetch;
   const calls = [];
-  global.fetch = async (url) => { calls.push(String(url)); return response(400, 'input token count exceeds the maximum context window'); };
+  global.fetch = async (url, options) => { assert.equal(new URL(String(url)).searchParams.has('key'), false); calls.push(options.headers['x-goog-api-key']); return response(400, 'input token count exceeds the maximum context window'); };
   try {
     const pool = new GeminiCredentialPool([
       { id: 'p1', key: 'k1' },
@@ -39,7 +39,7 @@ test('Gemini classifies context-window overflow without rotating or falling back
       (err) => err.code === 'CONTEXT_OVERFLOW' && err.fallbackEligible === false
     );
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].includes('key=k1'));
+    assert.equal(calls[0], 'k1');
   } finally { global.fetch = oldFetch; }
 });
 
