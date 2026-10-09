@@ -279,7 +279,7 @@ jobs:
       - name: Restore checkpoint from previous failed/cancelled run
         if: ${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
         continue-on-error: true
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/apes-checkpoint
@@ -311,7 +311,7 @@ jobs:
         run: node pipeline/scripts/call-review-gateway.js
       - name: Persist APES review checkpoint
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ runner.temp }}/apes-checkpoint/review.json
