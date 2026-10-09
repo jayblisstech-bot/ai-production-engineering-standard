@@ -7,10 +7,31 @@ const crypto = require('crypto');
 function atomicWrite(filePath, value) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = `${filePath}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, value, { encoding: 'utf8', mode: 0o600 });
-  try { fs.renameSync(tmp, filePath); }
-  finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
+  const tmp = `${filePath}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'wx', 0o600);
+    fs.writeFileSync(fd, value, { encoding: 'utf8' });
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tmp, filePath);
+    // Best-effort directory durability for POSIX filesystems after atomic rename.
+    if (process.platform !== 'win32') {
+      let dirFd;
+      try {
+        dirFd = fs.openSync(dir, 'r');
+        fs.fsyncSync(dirFd);
+      } catch (err) {
+        console.warn(`APES_CHECKPOINT_DIRECTORY_SYNC_FAILED: ${err.code || err.message}`);
+      } finally {
+        if (dirFd !== undefined) fs.closeSync(dirFd);
+      }
+    }
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+  }
 }
 
 function defaultCheckpointPath(taskId) {
