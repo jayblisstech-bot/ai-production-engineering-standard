@@ -313,10 +313,12 @@ async function main() {
     headSha: process.env.HEAD_SHA || null,
     diffSha: require('crypto').createHash('sha256').update(diffText).digest('hex'),
   });
+  const planHash = require('crypto').createHash('sha256').update(JSON.stringify(chunks.map((chunk) => require('crypto').createHash('sha256').update(chunk).digest('hex')))).digest('hex');
   const checkpoint = new ReviewCheckpoint({
     taskId,
     checkpointPath: process.env.APES_CHECKPOINT_PATH || undefined,
     chunkCount: chunks.length,
+    planHash,
     headSha: process.env.HEAD_SHA || null,
     reviewTarget: process.env.PR_NUMBER ? `PR:${process.env.PR_NUMBER}` : 'local-review',
   }).load();
