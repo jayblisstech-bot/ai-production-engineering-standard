@@ -164,3 +164,30 @@ test('truncated checkpoint is quarantined and allows safe fresh execution', () =
   recovered.commit(0, { findings: [], providers: [] });
   assert.equal(new ReviewCheckpoint({ taskId: 'recover', checkpointPath, chunkCount: 1 }).load().isFullyComplete(), true);
 });
+
+test('finding marker pagination reaches the second page and ignores stale heads', async () => {
+  const { fetchExistingFindingMarkers, findingFingerprint } = require('../scripts/call-review-gateway');
+  const originalFetch = global.fetch;
+  const finding = { path: 'src/api.js', line: 20, side: 'RIGHT', severity: 'P1', comment: 'Missing tenant guard.' };
+  const head = 'active-head';
+  const marker = findingMarker(head, finding);
+  const stale = findingMarker('old-head', { ...finding, comment: 'Stale issue.' });
+  const seen = [];
+  global.fetch = async (url) => {
+    seen.push(String(url));
+    if (String(url).includes('page=1')) {
+      return { ok: true, json: async () => Array.from({ length: 100 }, () => ({
+        commit_id: 'old-head', user: { login: 'github-actions[bot]', id: 41898282 }, body: stale,
+      })) };
+    }
+    return { ok: true, json: async () => [{
+      commit_id: head, user: { login: 'github-actions[bot]', id: 41898282 }, body: marker,
+    }] };
+  };
+  try {
+    const markers = await fetchExistingFindingMarkers('owner', 'repo', 7, head);
+    assert.equal(seen.length, 2);
+    assert.equal(markers.has(findingFingerprint(head, finding)), true);
+    assert.equal(markers.size, 1);
+  } finally { global.fetch = originalFetch; }
+});
