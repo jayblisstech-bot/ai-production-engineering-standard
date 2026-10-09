@@ -191,3 +191,23 @@ test('finding marker pagination reaches the second page and ignores stale heads'
     assert.equal(markers.size, 1);
   } finally { global.fetch = originalFetch; }
 });
+
+test('concurrent same-process publication of one finding sends only one POST', async () => {
+  const originalFetch = global.fetch;
+  const finding = { path: 'src/a.js', line: 4, side: 'RIGHT', severity: 'P1', comment: 'Concurrent check.' };
+  let posts = 0;
+  let finish;
+  global.fetch = async (_url, options = {}) => {
+    if (options.method !== 'POST') return { ok: true, json: async () => [] };
+    posts++;
+    return new Promise((resolve) => { finish = () => resolve({ ok: true }); });
+  };
+  try {
+    const markers = new Set();
+    const one = postInlineComment('owner', 'repo', 7, 'head', finding, markers);
+    const two = postInlineComment('owner', 'repo', 7, 'head', finding, markers);
+    assert.equal(posts, 1);
+    finish();
+    assert.deepEqual(await Promise.all([one, two]), [true, false]);
+  } finally { global.fetch = originalFetch; }
+});
