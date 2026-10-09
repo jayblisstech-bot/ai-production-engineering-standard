@@ -175,7 +175,7 @@ test('finding marker pagination reaches the second page and ignores stale heads'
   const seen = [];
   global.fetch = async (url) => {
     seen.push(String(url));
-    if (String(url).includes('page=1')) {
+    if (new URL(String(url)).searchParams.get('page') === '1') {
       return { ok: true, json: async () => Array.from({ length: 100 }, () => ({
         commit_id: 'old-head', user: { login: 'github-actions[bot]', id: 41898282 }, body: stale,
       })) };
