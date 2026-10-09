@@ -240,7 +240,7 @@ async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha) {
     const comments = await res.json();
     if (!Array.isArray(comments)) throw new Error('GitHub returned an invalid inline-comment collection.');
     for (const comment of comments) {
-      if (comment.commit_id === headSha && typeof comment.body === 'string') {
+      if (comment.commit_id === headSha && comment.user?.login === 'github-actions[bot]' && comment.user?.id === 41898282 && typeof comment.body === 'string') {
         const match = comment.body.match(/<!-- APES-FINDING:([a-f0-9]{16}) -->/);
         if (match) markers.add(match[1]);
       }
