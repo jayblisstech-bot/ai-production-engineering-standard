@@ -71,6 +71,25 @@ test('configured maxChunks remains enforced after hunk splitting', () => {
   assert.throws(() => chunkDiff(diff, 600, 1), /configured maximum/);
 });
 
+test('bounded first-fit packing reviews all independent sections inside the existing chunk cap', () => {
+  const fileSection = (i, size) => {
+    const prefix = 'diff --git a/f' + i + ' b/f' + i + '\n'
+      + '--- a/f' + i + '\n+++ b/f' + i + '\n'
+      + '@@ -0,0 +1,1 @@\n+';
+    return prefix + 'x'.repeat(size - prefix.length - 1) + '\n';
+  };
+  const parts = [600, 600, 600, 300, 300, 300].map((size, i) => fileSection(i, size));
+  const result = chunkDiff(parts.join(''), 1000, 3);
+  assert.equal(result.length, 3, 'each 600-character section pairs with a 300-character section');
+  assert.ok(result.every((chunk) => chunk.length <= 1000));
+  for (let i = 0; i < parts.length; i++) {
+    const marker = 'diff --git a/f' + i + ' b/f' + i;
+    assert.equal(result.reduce((sum, chunk) => sum + chunk.split(marker).length - 1, 0), 1,
+      'no section may be lost or duplicated');
+  }
+  assert.deepEqual(chunkDiff(parts.join(''), 1000, 3), result, 'packing must be deterministic');
+});
+
 test('small ordinary diffs remain unchanged', () => {
   const diff = 'diff --git a/example.txt b/example.txt\n'
     + '--- a/example.txt\n+++ b/example.txt\n'
