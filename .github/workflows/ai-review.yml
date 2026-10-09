@@ -211,6 +211,8 @@ jobs:
       p1_count: ${{ steps.review.outputs.p1_count }}
       p2_count: ${{ steps.review.outputs.p2_count }}
       reviewed_chunks: ${{ steps.review.outputs.reviewed_chunks }}
+      required_chunks: ${{ steps.review.outputs.required_chunks }}
+      checkpoint_complete: ${{ steps.review.outputs.checkpoint_complete }}
     steps:
       - name: Checkout project PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -352,5 +354,8 @@ jobs:
           VERDICT: ${{ needs.ai-review.outputs.verdict }}
           P0_COUNT: ${{ needs.ai-review.outputs.p0_count }}
           P1_COUNT: ${{ needs.ai-review.outputs.p1_count }}
+          REVIEWED_CHUNKS: ${{ needs.ai-review.outputs.reviewed_chunks }}
+          REQUIRED_CHUNKS: ${{ needs.ai-review.outputs.required_chunks }}
+          CHECKPOINT_COMPLETE: ${{ needs.ai-review.outputs.checkpoint_complete }}
           RESTRICTED_PR: ${{ github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]' }}
         run: node pipeline/scripts/enforce-gate.js
