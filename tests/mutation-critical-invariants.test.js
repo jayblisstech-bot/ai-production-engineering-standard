@@ -31,7 +31,7 @@ function executeTest(testFile, mutation) {
       cwd: directory,
       encoding: 'utf8',
       timeout: 20000,
-      env: { ...process.env, APES_MUTATION_TEST: 'true' },
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('NODE_TEST_'))), APES_MUTATION_TEST: 'true' },
     });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
