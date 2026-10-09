@@ -46,3 +46,10 @@ test('standalone assurance has a final prerequisite gate', () => {
   assert.match(assuranceWorkflow, /VALIDATION_OUTCOME:/);
   assert.match(assuranceWorkflow, /DEPENDENCY_STEP_OUTCOME:/);
 });
+
+test('reusable runtime ref guard rejects movable tags and requires exact commit SHA', () => {
+  const guard = workflow.slice(workflow.indexOf('  ref-guard:'), workflow.indexOf('  risk-classify:'));
+  assert.match(guard, /PIPELINE_REF.*0-9a-fA-F.*40/);
+  assert.doesNotMatch(guard, /\^v\[0-9\]/);
+  assert.match(guard, /semantic-version tags can be retargeted/);
+});
