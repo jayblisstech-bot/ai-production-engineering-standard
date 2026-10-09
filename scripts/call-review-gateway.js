@@ -148,17 +148,37 @@ function splitOversizedFileSection(section, maxChars) {
 function chunkDiff(diffText, maxChars, maxChunks) {
   const sections = String(diffText || '').split(/(?=^diff --git )/m).filter((s) => s.trim());
   const atomic = sections.flatMap((s) => splitOversizedFileSection(s, maxChars));
-  const chunks = [];
-  let current = '';
-  for (const section of atomic) {
-    if (current && current.length + section.length > maxChars) {
-      chunks.push(current);
-      current = section;
-    } else current += section;
+  if (!atomic.length) throw new Error('PR diff is empty; refusing to fabricate an AI review.');
+
+  // First-fit-decreasing packing avoids wasting most of a review chunk when a
+  // large diff section is followed by another large section. Reordering whole
+  // self-contained diff sections is safe: each carries its file header and
+  // exact original line numbers, and every section still receives review.
+  const units = atomic.map((content, order) => ({ content, order }))
+    .sort((a, b) => b.content.length - a.content.length || a.order - b.order);
+  const bins = [];
+  for (const unit of units) {
+    if (unit.content.length > maxChars) {
+      throw new Error('Diff section exceeds maxChunkChars; refusing partial AI review.');
+    }
+    let bin = bins.find((candidate) => candidate.length + unit.content.length <= maxChars);
+    if (!bin) {
+      bin = { length: 0, parts: [], firstOrder: unit.order };
+      bins.push(bin);
+    }
+    bin.parts.push(unit);
+    bin.length += unit.content.length;
+    bin.firstOrder = Math.min(bin.firstOrder, unit.order);
   }
-  if (current) chunks.push(current);
-  if (!chunks.length) throw new Error('PR diff is empty; refusing to fabricate an AI review.');
-  if (chunks.length > maxChunks) throw new Error(`PR requires ${chunks.length} review chunks; configured maximum is ${maxChunks}. Split the PR or raise the limit deliberately.`);
+  const chunks = bins.sort((a, b) => a.firstOrder - b.firstOrder)
+    .map((bin) => bin.parts.sort((a, b) => a.order - b.order)
+      .map((part) => part.content).join(''));
+  if (chunks.some((chunk) => chunk.length > maxChars)) {
+    throw new Error('AI review chunk exceeds configured limit; refusing partial review.');
+  }
+  if (chunks.length > maxChunks) {
+    throw new Error('PR requires ' + chunks.length + ' review chunks; configured maximum is ' + maxChunks + '. Split the PR or raise the limit deliberately.');
+  }
   return chunks;
 }
 
