@@ -13,3 +13,13 @@ test('checkpoint recovery selects same-workflow artifacts and observes restore f
   assert.doesNotMatch(yaml, /continue-on-error:\s*true/);
   assert.match(yaml, /overwrite: true/);
 });
+
+test('checkpoint discovery validates GitHub response schema and propagates jq errors', () => {
+  const yaml = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ai-review.yml'), 'utf8');
+  assert.match(yaml, /Malformed GitHub artifact response/);
+  assert.match(yaml, /Invalid workflow runs response/);
+  assert.match(yaml, /candidates="\$\(jq -er/);
+  assert.match(yaml, /select\(\.head_sha == \$head\)/);
+  assert.doesNotMatch(yaml, /done < <\(jq /);
+  assert.match(yaml, /done <<< "\$candidates"/);
+});
