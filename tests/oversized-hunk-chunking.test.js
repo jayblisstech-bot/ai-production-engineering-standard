@@ -35,6 +35,31 @@ test('oversized lockfile hunk is reviewed in bounded complete line-preserving pi
   assert.equal(expectedNewLine, additions.length + 1);
 });
 
+test('mixed context/remove/add hunks retain old and new line positions', () => {
+  const header = 'diff --git a/file b/file\n--- a/file\n+++ b/file\n';
+  const body = [' unchanged\n', '-removed\n',
+    ...Array.from({ length: 100 }, (_, i) => '+added_' + i + '\n'),
+    ' another-context\n'];
+  const diff = header + '@@ -10,3 +10,102 @@\n' + body.join('');
+  const chunks = chunkDiff(diff, 800, 30);
+  assert.ok(chunks.length > 1);
+  let oldLine = 10;
+  let newLine = 10;
+  const restored = [];
+  for (const chunk of chunks) {
+    const match = chunk.match(/^@@ -(\d+),(\d+) \+(\d+),(\d+) @@/m);
+    assert.ok(match);
+    assert.equal(Number(match[1]), oldLine);
+    assert.equal(Number(match[3]), newLine);
+    oldLine += Number(match[2]);
+    newLine += Number(match[4]);
+    restored.push(...chunk.slice(chunk.indexOf('\n@@ ') + 1).split('\n').slice(1, -1).map(line => line + '\n'));
+  }
+  assert.equal(oldLine, 13);
+  assert.equal(newLine, 112);
+  assert.deepEqual(restored, body);
+});
+
 test('one oversized line still fails closed instead of truncating context', () => {
   const header = 'diff --git a/file b/file\n--- a/file\n+++ b/file\n';
   const diff = header + '@@ -0,0 +1 @@\n+' + 'x'.repeat(1200) + '\n';
