@@ -138,7 +138,7 @@ class GeminiCredentialPool {
       let credentialTransientFailure = false;
 
       for (let attempt = 0; attempt <= this.maxRetriesPerCredential; attempt++) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(credential.key)}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
         let res;
         try {
           const generationConfig = { responseMimeType: 'application/json' };
@@ -146,7 +146,7 @@ class GeminiCredentialPool {
 
           res = await fetchWithTimeout(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': credential.key },
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: systemPrompt }] },
               contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
