@@ -119,30 +119,24 @@ function splitOversizedHunk(hunk, fileHeader, maxChars) {
 }
 
 function splitOversizedFileSection(section, maxChars) {
-  if (section.length <= maxChars) return [section];
   const hunkAt = section.indexOf('\n@@ ');
-  if (hunkAt < 0) throw new Error('A single diff file exceeds maxChunkChars and has no splittable hunks. Split the PR/file before review.');
+  if (hunkAt < 0) {
+    if (section.length <= maxChars) return [section];
+    throw new Error('A single diff file exceeds maxChunkChars and has no splittable hunks. Split the PR/file before review.');
+  }
   const header = section.slice(0, hunkAt + 1);
   const hunks = section.slice(hunkAt + 1).split(/(?=^@@ )/m).filter(Boolean);
-  const chunks = [];
-  let current = header;
-  for (const hunk of hunks) {
-    const parts = (header + hunk).length <= maxChars
-      ? [hunk]
-      : splitOversizedHunk(hunk, header, maxChars);
-    for (const part of parts) {
-      if ((current + part).length > maxChars && current !== header) {
-        chunks.push(current);
-        current = header;
-      }
-      if ((current + part).length > maxChars) {
-        throw new Error('Diff chunk exceeds maxChunkChars; refusing partial review.');
-      }
-      current += part;
-    }
+  if (!hunks.length) throw new Error('Diff file has no reviewable hunks; refusing incomplete review.');
+  // Even small hunks are standalone review units. Their repeated file headers
+  // make every unit independently mappable, and allow efficient bounded packing.
+  const parts = hunks.flatMap((hunk) => (header + hunk).length <= maxChars
+    ? [hunk]
+    : splitOversizedHunk(hunk, header, maxChars));
+  const sections = parts.map((part) => header + part);
+  if (sections.some((part) => part.length > maxChars)) {
+    throw new Error('A diff unit exceeds maxChunkChars; refusing incomplete AI review.');
   }
-  if (current !== header) chunks.push(current);
-  return chunks;
+  return sections;
 }
 
 function chunkDiff(diffText, maxChars, maxChunks) {
