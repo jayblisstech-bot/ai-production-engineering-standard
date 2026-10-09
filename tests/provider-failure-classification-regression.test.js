@@ -18,8 +18,9 @@ function successResponse() {
 test('Gemini token-related quota 429 rotates all three independent credentials before model fallback', async () => {
   const original = global.fetch;
   const calls = [];
-  global.fetch = async (url) => {
-    calls.push(String(url));
+  global.fetch = async (url, options) => {
+    assert.equal(new URL(String(url)).searchParams.has('key'), false);
+    calls.push(String(url) + '?key=' + options.headers['x-goog-api-key']);
     if (String(url).includes('model-first')) {
       return errorResponse(429, {
         code: 429, status: 'RESOURCE_EXHAUSTED',
@@ -45,9 +46,10 @@ test('Gemini token-related quota 429 rotates all three independent credentials b
 test('Gemini invalid key reported as structured HTTP 400 is disabled while healthy key succeeds', async () => {
   const original = global.fetch;
   const calls = [];
-  global.fetch = async (url) => {
-    calls.push(String(url));
-    return String(url).includes('invalid-key')
+  global.fetch = async (url, options) => {
+    assert.equal(new URL(String(url)).searchParams.has('key'), false);
+    calls.push(String(url) + '?key=' + options.headers['x-goog-api-key']);
+    return options.headers['x-goog-api-key'] === 'invalid-key'
       ? errorResponse(400, {
           code: 400, status: 'INVALID_ARGUMENT',
           message: 'API key not valid',
