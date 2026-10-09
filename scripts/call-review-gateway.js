@@ -367,6 +367,9 @@ async function main() {
     providers.push(...providerRoute);
   }
 
+  if (!checkpoint.isFullyComplete()) throw new Error('AI review checkpoint is incomplete; refusing final publication and gate success.');
+  if (checkpoint.completedEntries().length !== chunks.length) throw new Error('AI review chunk coverage mismatch.');
+
   const findings = dedupeFindings(allFindings);
   const counts = { P0: 0, P1: 0, P2: 0, P3: 0 };
   findings.forEach((f) => counts[f.severity]++);
@@ -384,7 +387,8 @@ async function main() {
     p2_count: counts.P2,
     p3_count: counts.P3,
     findings_count: findings.length,
-    reviewed_chunks: chunks.length,
+    reviewed_chunks: checkpoint.completedEntries().length,
+    required_chunks: chunks.length,
     resumed_chunks: resumedChunks,
     checkpoint_task_id: taskId,
     checkpoint_path: checkpoint.path,
@@ -397,7 +401,7 @@ async function main() {
   };
   console.log(JSON.stringify(result, null, 2));
   if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `verdict=${verdict}\np0_count=${counts.P0}\np1_count=${counts.P1}\np2_count=${counts.P2}\nreviewed_chunks=${chunks.length}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `verdict=${verdict}\np0_count=${counts.P0}\np1_count=${counts.P1}\np2_count=${counts.P2}\nreviewed_chunks=${checkpoint.completedEntries().length}\nrequired_chunks=${chunks.length}\ncheckpoint_complete=${checkpoint.isFullyComplete()}\n`);
   }
 }
 
