@@ -44,6 +44,16 @@ class ReviewCheckpoint {
     };
   }
 
+  invalidate() {
+    if (fs.existsSync(this.path)) fs.renameSync(this.path, `${this.path}.invalid.${process.pid}.${Date.now()}`);
+    this.state.completedChunks = {};
+    this.state.updatedAt = null;
+    this.restored = false;
+    this.invalidCheckpointQuarantined = true;
+    console.warn('APES_CHECKPOINT_INVALID: invalid restored state quarantined; review will restart from chunk zero.');
+    return this;
+  }
+
   load() {
     if (!fs.existsSync(this.path)) return this;
     try {
@@ -68,12 +78,7 @@ class ReviewCheckpoint {
     return this;
     } catch (_) {
       // Never replay corrupt or wrong-plan state. Remove it from the active path.
-      const quarantinePath = `${this.path}.invalid.${process.pid}.${Date.now()}`;
-      fs.renameSync(this.path, quarantinePath);
-      this.restored = false;
-      this.invalidCheckpointQuarantined = true;
-      console.warn('APES_CHECKPOINT_INVALID: checkpoint quarantined; restarting uncommitted review from chunk zero.');
-      return this;
+      return this.invalidate();
     }
   }
 
