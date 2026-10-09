@@ -246,39 +246,54 @@ jobs:
       - name: Prepare durable APES checkpoint directory
         run: mkdir -p "$RUNNER_TEMP/apes-checkpoint"
 
-      - name: Locate previous failed/cancelled run for this PR head
+      - name: Locate checkpoint for matching workflow, PR and head
         id: previous-checkpoint-run
         if: ${{ github.event.pull_request.number != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CURRENT_RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "https://api.github.com/repos/$REPOSITORY/actions/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
-          previous="$(printf '%s' "$response" | jq -r --arg current "$CURRENT_RUN_ID" '
-            [.workflow_runs[]
-              | select((.id|tostring) != $current)
-              | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
-              | .id]
-            | first // empty
-          ')"
+          api() {
+            curl --fail --silent --show-error --location -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"
+          }
+          artifact_name="apes-review-checkpoint-${PR_NUMBER}-${HEAD_SHA}"
+          has_artifact() {
+            api "https://api.github.com/repos/$REPOSITORY/actions/runs/$1/artifacts?per_page=100" | \
+              jq -e --arg name "$artifact_name" 'any(.artifacts[]?; .name == $name and .expired == false)' >/dev/null
+          }
+          current="$(api "https://api.github.com/repos/$REPOSITORY/actions/runs/$CURRENT_RUN_ID")"
+          workflow_id="$(jq -er '.workflow_id | numbers' <<< "$current")"
+          previous=''
+          if [[ "$RUN_ATTEMPT" -gt 1 ]] && has_artifact "$CURRENT_RUN_ID"; then
+            previous="$CURRENT_RUN_ID"
+          else
+            response="$(api "https://api.github.com/repos/$REPOSITORY/actions/workflows/$workflow_id/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
+            while IFS= read -r candidate; do
+              [[ -z "$candidate" ]] && continue
+              if has_artifact "$candidate"; then previous="$candidate"; break; fi
+            done < <(jq -r --arg current "$CURRENT_RUN_ID" --argjson pr "$PR_NUMBER" '
+              [.workflow_runs[]
+               | select((.id | tostring) != $current)
+               | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
+               | select(any(.pull_requests[]?; .number == $pr))
+               | .id] | .[]' <<< "$response")
+          fi
           echo "run_id=$previous" >> "$GITHUB_OUTPUT"
           if [[ -n "$previous" ]]; then
-            echo "Previous failed/cancelled run with reusable checkpoint: $previous"
+            echo "Checkpoint artifact selected from run $previous for PR $PR_NUMBER at $HEAD_SHA"
           else
-            echo "No previous failed/cancelled run checkpoint found."
+            echo 'No matching non-expired checkpoint artifact; running from the beginning.'
           fi
 
-      - name: Restore checkpoint from previous failed/cancelled run
+      - name: Restore verified checkpoint artifact
         if: ${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
-        continue-on-error: true
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
@@ -286,7 +301,6 @@ jobs:
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.previous-checkpoint-run.outputs.run_id }}
-
       - name: Run bounded, fail-closed AI review
         id: review
         env:
@@ -317,6 +331,7 @@ jobs:
           path: ${{ runner.temp }}/apes-checkpoint/review.json
           if-no-files-found: ignore
           retention-days: 7
+          overwrite: true
 
   quality-gate:
     runs-on: ubuntu-latest
