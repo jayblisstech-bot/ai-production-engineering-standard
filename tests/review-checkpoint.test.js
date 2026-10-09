@@ -206,6 +206,7 @@ test('concurrent same-process publication of one finding sends only one POST', a
     const markers = new Set();
     const one = postInlineComment('owner', 'repo', 7, 'head', finding, markers);
     const two = postInlineComment('owner', 'repo', 7, 'head', finding, markers);
+    for (let i = 0; i < 20 && !posts; i++) await Promise.resolve();
     assert.equal(posts, 1);
     finish();
     assert.deepEqual(await Promise.all([one, two]), [true, false]);
