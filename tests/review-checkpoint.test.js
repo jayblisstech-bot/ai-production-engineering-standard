@@ -118,3 +118,33 @@ test('forged marker by an untrusted user cannot suppress a review finding', asyn
     assert.equal(posted, 1);
   } finally { global.fetch = originalFetch; }
 });
+
+test('422 publication retry reconciles an already-posted trusted finding', async () => {
+  const originalFetch = global.fetch;
+  const finding = { path: 'src/app.js', line: 55, side: 'RIGHT', severity: 'P1', comment: 'Broken authorization.' };
+  const headSha = 'head';
+  let lookup = 0;
+  global.fetch = async (_url, options = {}) => {
+    if (options.method === 'POST') return { ok: false, status: 422, text: async () => 'unprocessable' };
+    lookup++;
+    return { ok: true, json: async () => lookup === 1 ? [] : [{
+      commit_id: headSha,
+      user: { login: 'github-actions[bot]', id: 41898282 },
+      body: findingMarker(headSha, finding),
+    }] };
+  };
+  try {
+    assert.equal(await postInlineComment('owner', 'repo', 7, headSha, finding), false);
+    assert.equal(lookup, 2);
+  } finally { global.fetch = originalFetch; }
+});
+test('422 without a matching trusted marker remains a publication failure', async () => {
+  const originalFetch = global.fetch;
+  const finding = { path: 'a.js', line: 3, side: 'RIGHT', severity: 'P1', comment: 'Missing guard.' };
+  global.fetch = async (_url, options = {}) => options.method === 'POST'
+    ? { ok: false, status: 422, text: async () => 'unprocessable' }
+    : { ok: true, json: async () => [] };
+  try {
+    await assert.rejects(() => postInlineComment('owner', 'repo', 7, 'head', finding), /Failed to post required inline review comment/);
+  } finally { global.fetch = originalFetch; }
+});
