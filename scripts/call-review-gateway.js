@@ -271,6 +271,15 @@ async function postInlineComment(owner, repo, prNumber, headSha, finding, existi
       side: finding.side || 'RIGHT',
     }),
   });
+  if (!res.ok && res.status === 422) {
+    // A prior publication may have succeeded even if the response was lost.
+    // Reconcile with GitHub before treating the finding as unpublished.
+    const refreshed = await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
+    if (refreshed.has(findingFingerprint(headSha, finding))) {
+      markers.add(findingFingerprint(headSha, finding));
+      return false;
+    }
+  }
   if (!res.ok) throw new Error(`Failed to post required inline review comment on ${finding.path}:${finding.line}: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
   markers.add(findingFingerprint(headSha, finding));
   return true;
