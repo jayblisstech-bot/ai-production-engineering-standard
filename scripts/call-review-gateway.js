@@ -312,7 +312,7 @@ function dedupeFindings(findings) {
   return [...map.values()];
 }
 
-async function main() {
+async function main({ createHermes = (config) => new HermesOrchestrator({ config }) } = {}) {
   const riskTier = process.env.RISK_TIER || 'MEDIUM';
   const modelTier = process.env.MODEL_TIER || 'medium';
   if (modelTier === 'skip') throw new Error('AI gateway should not be invoked for model_tier=skip.');
@@ -375,7 +375,7 @@ async function main() {
   const allFindings = [];
   const providers = [];
   const resumedChunks = [];
-  const hermes = new HermesOrchestrator({ config });
+  const hermes = createHermes(config);
   for (let i = 0; i < chunks.length; i++) {
     const saved = checkpoint.completed(i);
     if (saved) {
@@ -457,4 +457,4 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => { console.error(err.stack || err.message); process.exit(1); });
 }
-module.exports = { buildReviewUserPrompt, chunkDiff, estimateTokens, collectContext, parseJsonObject, compactReviewContext, normalizeReview, dedupeFindings, findingFingerprint, findingMarker, fetchExistingFindingMarkers, postInlineComment };
+module.exports = { main, buildReviewUserPrompt, chunkDiff, estimateTokens, collectContext, parseJsonObject, compactReviewContext, normalizeReview, dedupeFindings, findingFingerprint, findingMarker, fetchExistingFindingMarkers, postInlineComment };
