@@ -14,6 +14,12 @@ function response(status, body, headers = {}) {
 
 const okBody = (text='{"findings":[]}') => ({ candidates: [{ content: { parts: [{ text }] } }] });
 
+function requestKeyUrl(url, options) {
+  assert.equal(new URL(String(url)).searchParams.has('key'), false);
+  assert.ok(options.headers['x-goog-api-key']);
+  return String(url) + '?key=' + options.headers['x-goog-api-key'];
+}
+
 test('parses multiple Gemini project credentials without exposing keys as ids', () => {
   const creds = parseGeminiCredentials({ GEMINI_API_KEYS_JSON: JSON.stringify([{ id: 'project-a', key: 'secret-a' }, { id: 'project-b', key: 'secret-b' }]) });
   assert.deepEqual(creds.map((c) => c.id), ['project-a', 'project-b']);
@@ -23,9 +29,9 @@ test('parses multiple Gemini project credentials without exposing keys as ids', 
 test('rotates credential before changing the selected Gemini model on 429', async () => {
   const oldFetch = global.fetch;
   const urls = [];
-  global.fetch = async (url) => {
-    urls.push(String(url));
-    if (String(url).includes('key=k1')) return response(429, 'quota');
+  global.fetch = async (url, options) => {
+    urls.push(requestKeyUrl(url, options));
+    if (requestKeyUrl(url, options).includes('key=k1')) return response(429, 'quota');
     return response(200, okBody());
   };
   try {
@@ -41,8 +47,8 @@ test('rotates credential before changing the selected Gemini model on 429', asyn
 test('only moves to the next Gemini model after all healthy credentials are exhausted for the first', async () => {
   const oldFetch = global.fetch;
   const calls = [];
-  global.fetch = async (url) => {
-    const u = String(url); calls.push(u);
+  global.fetch = async (url, options) => {
+    const u = requestKeyUrl(url, options); calls.push(u);
     if (u.includes('model-one')) return response(429, 'quota');
     return response(200, okBody());
   };
@@ -59,7 +65,7 @@ test('only moves to the next Gemini model after all healthy credentials are exha
 
 test('invalid Gemini credential is disabled and next project credential is tried on the same model', async () => {
   const oldFetch = global.fetch;
-  global.fetch = async (url) => String(url).includes('key=bad') ? response(401, 'bad key') : response(200, okBody());
+  global.fetch = async (url, options) => requestKeyUrl(url, options).includes('key=bad') ? response(401, 'bad key') : response(200, okBody());
   try {
     const pool = new GeminiCredentialPool([{ id: 'bad-project', key: 'bad' }, { id: 'good-project', key: 'good' }], { maxRetriesPerCredential: 0 });
     const out = await pool.request('model-one', 's', 'u');
@@ -99,8 +105,8 @@ test('maxRetriesPerCredential=0 is honored for transient server failures', async
 test('Gemini 403 quarantines only the credential+model pair, not the whole credential', async () => {
   const oldFetch = global.fetch;
   const calls = [];
-  global.fetch = async (url) => {
-    const u = String(url); calls.push(u);
+  global.fetch = async (url, options) => {
+    const u = requestKeyUrl(url, options); calls.push(u);
     if (u.includes('model-a') && u.includes('key=k1')) return response(403, 'forbidden for model');
     return response(200, okBody());
   };
@@ -133,8 +139,8 @@ test('Gemini request sends configured thinking level and omits deprecated temper
 test('repeated 5xx failures exhaust every independent credential before fallback', async () => {
   const oldFetch = global.fetch;
   const calls = [];
-  global.fetch = async (url) => {
-    calls.push(String(url));
+  global.fetch = async (url, options) => {
+    calls.push(requestKeyUrl(url, options));
     return response(503, 'overloaded');
   };
   try {
@@ -159,8 +165,8 @@ test('repeated 5xx failures exhaust every independent credential before fallback
 test('429 remains credential-specific and continues rotating across the pool', async () => {
   const oldFetch = global.fetch;
   const calls = [];
-  global.fetch = async (url) => {
-    const u = String(url); calls.push(u);
+  global.fetch = async (url, options) => {
+    const u = requestKeyUrl(url, options); calls.push(u);
     if (u.includes('key=k1') || u.includes('key=k2')) return response(429, 'quota');
     return response(200, okBody());
   };
