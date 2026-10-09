@@ -30,10 +30,10 @@ test('checkpoint refuses a different review identity', () => {
   const checkpointPath = path.join(dir, 'review.json');
   const first = new ReviewCheckpoint({ taskId: 'task-a', checkpointPath, chunkCount: 1, headSha: 'abc', reviewTarget: 'PR:1' }).load();
   first.commit(0, { findings: [], providers: [] });
-  assert.throws(
-    () => new ReviewCheckpoint({ taskId: 'task-b', checkpointPath, chunkCount: 1, headSha: 'abc', reviewTarget: 'PR:1' }).load(),
-    /identity mismatch/
-  );
+  const restarted = new ReviewCheckpoint({ taskId: 'task-b', checkpointPath, chunkCount: 1, headSha: 'abc', reviewTarget: 'PR:1' }).load();
+  assert.equal(restarted.isFullyComplete(), false);
+  assert.equal(restarted.invalidCheckpointQuarantined, true);
+  assert.equal(fs.existsSync(checkpointPath), false);
 });
 
 const { postInlineComment, findingMarker } = require('../scripts/call-review-gateway');
@@ -72,7 +72,9 @@ test('same chunk count but different plan hash rejects checkpoint resume', () =>
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-plan-test-'));
   const checkpointPath = path.join(dir, 'state.json');
   new ReviewCheckpoint({ taskId: 'plan-a', checkpointPath, chunkCount: 2, planHash: 'a'.repeat(64) }).commit(0, { findings: [], providers: [] });
-  assert.throws(() => new ReviewCheckpoint({ taskId: 'plan-a', checkpointPath, chunkCount: 2, planHash: 'b'.repeat(64) }).load(), /identity mismatch/);
+  const differentPlan = new ReviewCheckpoint({ taskId: 'plan-a', checkpointPath, chunkCount: 2, planHash: 'b'.repeat(64) }).load();
+  assert.equal(differentPlan.isComplete(0), false);
+  assert.equal(differentPlan.invalidCheckpointQuarantined, true);
 });
 
 test('malformed and out-of-range completed chunks are rejected', () => {
@@ -83,7 +85,9 @@ test('malformed and out-of-range completed chunks are rejected', () => {
   const state = JSON.parse(fs.readFileSync(checkpointPath, 'utf8'));
   state.completedChunks['5'] = { chunkIndex: 5, findings: [], providers: [], committedAt: new Date().toISOString() };
   fs.writeFileSync(checkpointPath, JSON.stringify(state));
-  assert.throws(() => new ReviewCheckpoint({ taskId: 'invalid', checkpointPath, chunkCount: 1 }).load(), /out of range/);
+  const recovered = new ReviewCheckpoint({ taskId: 'invalid', checkpointPath, chunkCount: 1 }).load();
+  assert.equal(recovered.isFullyComplete(), false);
+  assert.equal(recovered.invalidCheckpointQuarantined, true);
 });
 
 test('failed atomic rename does not mark in-memory chunk complete', () => {
@@ -147,4 +151,16 @@ test('422 without a matching trusted marker remains a publication failure', asyn
   try {
     await assert.rejects(() => postInlineComment('owner', 'repo', 7, 'head', finding), /Failed to post required inline review comment/);
   } finally { global.fetch = originalFetch; }
+});
+
+test('truncated checkpoint is quarantined and allows safe fresh execution', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-corrupt-test-'));
+  const checkpointPath = path.join(dir, 'review.json');
+  fs.writeFileSync(checkpointPath, '{"schemaVersion":2,');
+  const recovered = new ReviewCheckpoint({ taskId: 'recover', checkpointPath, chunkCount: 1 }).load();
+  assert.equal(recovered.isComplete(0), false);
+  assert.equal(recovered.invalidCheckpointQuarantined, true);
+  assert.equal(fs.existsSync(checkpointPath), false);
+  recovered.commit(0, { findings: [], providers: [] });
+  assert.equal(new ReviewCheckpoint({ taskId: 'recover', checkpointPath, chunkCount: 1 }).load().isFullyComplete(), true);
 });
