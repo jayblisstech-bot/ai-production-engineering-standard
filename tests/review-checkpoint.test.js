@@ -211,3 +211,24 @@ test('concurrent same-process publication of one finding sends only one POST', a
     assert.deepEqual(await Promise.all([one, two]), [true, false]);
   } finally { global.fetch = originalFetch; }
 });
+
+test('fresh marker lookup prevents duplicate publication from stale cached snapshot', async () => {
+  const originalFetch = global.fetch;
+  const finding = { path: 'src/a.js', line: 8, side: 'RIGHT', severity: 'P1', comment: 'Authorization defect.' };
+  const headSha = 'head';
+  let posts = 0;
+  let reads = 0;
+  global.fetch = async (_url, options = {}) => {
+    if (options.method === 'POST') { posts++; return { ok: true }; }
+    reads++;
+    return { ok: true, json: async () => [{
+      commit_id: headSha, user: { login: 'github-actions[bot]', id: 41898282 }, body: findingMarker(headSha, finding),
+    }] };
+  };
+  try {
+    const stale = new Set();
+    assert.equal(await postInlineComment('owner', 'repo', 7, headSha, finding, stale), false);
+    assert.equal(posts, 0);
+    assert.equal(reads, 1);
+  } finally { global.fetch = originalFetch; }
+});
