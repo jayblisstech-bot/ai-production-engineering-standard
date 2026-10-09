@@ -233,3 +233,20 @@ test('fresh marker lookup prevents duplicate publication from stale cached snaps
     assert.equal(reads, 1);
   } finally { global.fetch = originalFetch; }
 });
+
+test('checkpoint sync failure leaves no completed state or temporary file', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-sync-fail-'));
+  const checkpointPath = path.join(dir, 'state.json');
+  const cp = new ReviewCheckpoint({ taskId: 'sync-failure', checkpointPath, chunkCount: 1 });
+  const originalSync = fs.fsyncSync;
+  fs.fsyncSync = () => { throw new Error('injected file fsync failure'); };
+  try {
+    assert.throws(() => cp.commit(0, { findings: [], providers: [] }), /injected file fsync failure/);
+    assert.equal(cp.isComplete(0), false);
+    assert.equal(fs.existsSync(checkpointPath), false);
+    assert.deepEqual(fs.readdirSync(dir), []);
+  } finally {
+    fs.fsyncSync = originalSync;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
