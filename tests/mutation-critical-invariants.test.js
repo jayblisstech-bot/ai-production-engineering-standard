@@ -9,7 +9,7 @@ const mutations = [
   { name: 'resume skip', file: 'scripts/call-review-gateway.js', test: 'tests/main-resume-integration.test.js', old: 'if (saved) {', replacement: 'if (false && saved) {' },
   { name: 'checkpoint commit', file: 'scripts/call-review-gateway.js', test: 'tests/main-resume-integration.test.js', old: 'checkpoint.commit(i, { findings: normalized.findings, providers: providerRoute });', replacement: '/* mutation: skipped durable commit */' },
   { name: 'context compaction', file: 'scripts/call-review-gateway.js', test: 'tests/main-context-compaction-integration.test.js', old: 'reviewContext = compactReviewContext(reviewContext, nextLimit);', replacement: '/* mutation: no context compaction */' },
-  { name: 'finding deduplication', file: 'scripts/call-review-gateway.js', test: 'tests/main-publication-resume-integration.test.js', old: 'if (markers.has(fingerprint)) return false;', replacement: 'if (false) return false;' },
+  { name: 'finding deduplication', file: 'scripts/call-review-gateway.js', test: 'tests/review-checkpoint.test.js', old: 'if (markers.has(fingerprint)) return false;', replacement: 'if (false) return false;' },
   { name: 'checkpoint plan identity', file: 'scripts/review-checkpoint.js', test: 'tests/review-checkpoint.test.js', old: 'parsed.planHash !== this.planHash', replacement: 'false' },
   { name: 'finding pagination', file: 'scripts/call-review-gateway.js', test: 'tests/review-checkpoint.test.js', old: 'if (comments.length < 100) break;', replacement: 'break;' },
   { name: 'finding head SHA', file: 'scripts/call-review-gateway.js', test: 'tests/review-checkpoint.test.js', old: 'comment.commit_id === headSha &&', replacement: 'true &&' },
