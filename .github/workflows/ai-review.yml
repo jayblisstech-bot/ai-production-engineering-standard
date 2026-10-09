@@ -5,8 +5,7 @@ on:
     inputs:
       pipeline_ref:
         description: Reviewed APES release commit used to fetch central scripts
-        required: false
-        default: 4f02a1ed79fb972998623a62c05a254e0e450687
+        required: true
         type: string
       config_path:
         description: Project-local APES JSON configuration path
