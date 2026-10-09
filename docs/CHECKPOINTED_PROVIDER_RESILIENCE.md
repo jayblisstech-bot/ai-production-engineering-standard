@@ -25,7 +25,7 @@ This document describes the implementation on `feat/checkpointed-provider-failov
 - The workflow associates a checkpoint with the same workflow identity, PR, head SHA and named non-expired artifact; same-run reruns can consider an artifact from an earlier attempt.
 - Selected artifact downloads fail visibly on errors; no checkpoint means a fresh review, not a false resume.
 - The artifact has seven-day retention and is uploaded on an `always()` step where an active checkpoint exists. The workflow may lose recent completed chunks if the runner is terminated before upload; job failure and artifact upload are not a transactional commit.
-- Changing the PR head SHA invalidates old checkpoint state. Long-lived distributed exactly-once execution across different GitHub runs is not guaranteed. Controlled real-workflow rerun testing remains a release acceptance requirement.
+- Changing the PR head SHA invalidates old checkpoint state. Long-lived distributed exactly-once execution across different GitHub runs is not guaranteed. A controlled GitHub Actions failed-run rerun using a synthetic checkpoint fixture passed (run 37982428034, second attempt). It does not exercise provider calls or a genuinely cancelled AI-review job.
 
 ## Review finding publication
 
@@ -37,9 +37,9 @@ This document describes the implementation on `feat/checkpointed-provider-failov
 
 ## Remaining release blockers
 
-1. Real GitHub workflow rerun/cancellation and artifact restore verification.
+1. **Partly verified:** a real GitHub Actions synthetic-checkpoint failure/rerun with artifact restore passed (run 37982428034). A cancelled AI-review job exercising actual provider calls remains unverified.
 2. Broader end-to-end failure-injection and meaningful mutation testing across the primary orchestration path.
-3. Independently review publication races, comment fingerprint stability, and provider classification edge cases.
+3. Independently review publication races, comment fingerprint stability, and provider classification edge cases. PR-scoped GitHub Actions concurrency serializes the official workflow, but third-party writers bypassing the same concurrency group are not covered.
 4. Check the reusable workflow's default `pipeline_ref` and all callers: the historical default may reference a runtime that predates checkpoints. Do not silently switch downstream apps to an unreviewed ref.
 5. Confirm supply-chain scan, prompt-injection resilience, secret redaction, and any applicable global execution deadline.
 6. Obtain an independent reviewer verdict on the final commit and explicit human merge authorization.
