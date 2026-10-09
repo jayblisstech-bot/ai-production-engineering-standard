@@ -285,7 +285,7 @@ jobs:
                  | select(.head_sha == $head)
                  | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
                  | select(any(.pull_requests[]?; .number == $pr))
-                 | .id] | if length == 0 then "" else join("\\n") end
+                 | .id] | if length == 0 then "" else join("\n") end
               end' <<< "$response")"
             while IFS= read -r candidate; do
               [[ -z "$candidate" ]] && continue
