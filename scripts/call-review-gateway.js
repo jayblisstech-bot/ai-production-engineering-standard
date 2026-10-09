@@ -326,7 +326,13 @@ async function main() {
     headSha: process.env.HEAD_SHA || null,
     diffSha: require('crypto').createHash('sha256').update(diffText).digest('hex'),
   });
-  const planHash = require('crypto').createHash('sha256').update(JSON.stringify(chunks.map((chunk) => require('crypto').createHash('sha256').update(chunk).digest('hex')))).digest('hex');
+  const planHash = require('crypto').createHash('sha256').update(JSON.stringify({
+    planVersion: 2,
+    chunks: chunks.map((chunk) => require('crypto').createHash('sha256').update(chunk).digest('hex')),
+    systemPromptHash: require('crypto').createHash('sha256').update(REVIEW_SYSTEM_PROMPT).digest('hex'),
+    contextHash: require('crypto').createHash('sha256').update(context.text).digest('hex'),
+    reviewMetadataHash: require('crypto').createHash('sha256').update(JSON.stringify({ prTitle, prBody, riskTier, modelTier })).digest('hex'),
+  })).digest('hex');
   const checkpoint = new ReviewCheckpoint({
     taskId,
     checkpointPath: process.env.APES_CHECKPOINT_PATH || undefined,
@@ -335,6 +341,19 @@ async function main() {
     headSha: process.env.HEAD_SHA || null,
     reviewTarget: process.env.PR_NUMBER ? `PR:${process.env.PR_NUMBER}` : 'local-review',
   }).load();
+
+  // Checkpoint entries are untrusted persisted input; validate them against the exact diff.
+  for (let i = 0; i < chunks.length; i++) {
+    const saved = checkpoint.completed(i);
+    if (!saved) continue;
+    try {
+      const checked = normalizeReview({ findings: saved.findings }, diffLineIndex(chunks[i]));
+      if (JSON.stringify(checked.findings) !== JSON.stringify(saved.findings)) throw new Error('Noncanonical checkpoint finding');
+    } catch (_) {
+      checkpoint.invalidate();
+      break;
+    }
+  }
 
   const allFindings = [];
   const providers = [];
