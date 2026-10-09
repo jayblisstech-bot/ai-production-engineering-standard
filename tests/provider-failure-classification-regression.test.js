@@ -93,3 +93,43 @@ for (const [name, fn] of [
     }
   });
 }
+
+for (const [name, fn] of [['OpenAI', callOpenAI], ['Anthropic', callAnthropic], ['OpenRouter', callOpenRouter]]) {
+  for (const status of [401, 403, 404, 408, 429, 500, 503]) {
+    test(`${name} HTTP ${status} retains fallback eligibility even when error mentions context tokens`, async () => {
+      const previous = global.fetch;
+      global.fetch = async () => errorResponse(status, { message: 'input token per minute limit exceeded; maximum rate limit' });
+      try {
+        await assert.rejects(() => fn('model', 'system', 'user', 1000, 'test-key'),
+          err => err.code === `HTTP_${status}` && err.fallbackEligible === true);
+      } finally { global.fetch = previous; }
+    });
+  }
+  test(`${name} HTTP 400 genuine context-window overflow remains non-fallback`, async () => {
+    const previous = global.fetch;
+    global.fetch = async () => errorResponse(400, { message: 'maximum context length exceeded: input tokens too large' });
+    try {
+      await assert.rejects(() => fn('model', 'system', 'user', 1000, 'test-key'),
+        err => err.code === 'CONTEXT_OVERFLOW' && err.fallbackEligible === false);
+    } finally { global.fetch = previous; }
+  });
+}
+test('nine independent Gemini credential projects exhaust before lower model is attempted', async () => {
+  const previous = global.fetch;
+  const attempts = [];
+  global.fetch = async (url, options) => {
+    attempts.push({ model: String(url).includes('model-primary') ? 'primary' : 'fallback', key: options.headers['x-goog-api-key'] });
+    return String(url).includes('model-primary')
+      ? errorResponse(429, { status: 'RESOURCE_EXHAUSTED', message: 'input token rate limit exceeded' })
+      : successResponse();
+  };
+  try {
+    const credentials = Array.from({length: 9}, (_, i) => ({ id: `project-${i}`, key: `key-${i}` }));
+    const pool = new GeminiCredentialPool(credentials, { maxRetriesPerCredential: 0, cooldown429Ms: 1000 });
+    const result = await pool.callModels(['model-primary', 'model-fallback'], 'system', 'user');
+    assert.equal(result.model, 'model-fallback');
+    assert.equal(attempts.filter(a => a.model === 'primary').length, 9);
+    assert.equal(new Set(attempts.filter(a => a.model === 'primary').map(a => a.key)).size, 9);
+    assert.equal(attempts[9].model, 'fallback');
+  } finally { global.fetch = previous; }
+});
