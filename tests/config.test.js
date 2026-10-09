@@ -54,9 +54,15 @@ test('unsupported Gemini thinking levels fail loudly', () => {
   });
 });
 
-test('Gemini transient provider fanout is bounded', () => {
+test('obsolete Gemini transient cap is rejected rather than silently used', () => {
   withConfig({ version: 1, review: { routing: { geminiPool: { maxTransientCredentialsPerModel: 2 } } } }, (root) => {
-    const cfg = loadConfig(root);
-    assert.equal(cfg.review.routing.geminiPool.maxTransientCredentialsPerModel, 2);
+    assert.throws(() => loadConfig(root), /Unknown APES config key/);
   });
 });
+for (const [field, invalid] of [['maxChunkTokens', 0], ['maxChunkTokens', -1], ['charsPerToken', 0], ['charsPerToken', -1], ['maxChunkTokens', 'oops']]) {
+  test(`rejects invalid review chunk budget ${field}=${invalid}`, () => {
+    withConfig({ version: 1, review: { [field]: invalid } }, (root) => {
+      assert.throws(() => loadConfig(root), /must be|of type/);
+    });
+  });
+}
