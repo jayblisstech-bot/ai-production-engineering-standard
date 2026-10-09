@@ -77,10 +77,14 @@ function estimateTokens(text, charsPerToken = 4) {
 }
 
 function chunkDiff(diffText, maxChars, maxChunks, options = {}) {
-  const maxTokens = Number(options.maxTokens || Math.floor(Number(maxChars) / Number(options.charsPerToken || 4)));
-  const charsPerToken = Number(options.charsPerToken || 4);
+  const charsPerToken = Number(options.charsPerToken ?? 4);
+  const maxTokens = Number(options.maxTokens ?? Math.floor(Number(maxChars) / charsPerToken));
+  if (!Number.isFinite(charsPerToken) || charsPerToken <= 0) throw new Error('charsPerToken must be finite and positive.');
+  if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new Error('maxTokens must be a positive integer.');
+  if (!Number.isSafeInteger(maxChars) || maxChars <= 0 || !Number.isSafeInteger(maxChunks) || maxChunks <= 0) throw new Error('Invalid chunk character or chunk-count limit.');
+  const effectiveMaxChars = Math.min(maxChars, maxTokens * charsPerToken);
   const sections = String(diffText || '').split(/(?=^diff --git )/m).filter((s) => s.trim());
-  const atomic = sections.flatMap((s) => splitOversizedFileSection(s, maxChars));
+  const atomic = sections.flatMap((s) => splitOversizedFileSection(s, effectiveMaxChars));
   const chunks = [];
   let current = '';
   let currentTokens = 0;
@@ -306,8 +310,8 @@ async function main() {
   const changedFiles = fs.readFileSync(process.env.CHANGED_FILES_FILE, 'utf8').split('\n').map((s) => s.trim()).filter(Boolean);
   const context = collectContext({ projectRoot, config, changedFiles });
   const maxChunkChars = Number(config.review.maxChunkChars || 45000);
-  const maxChunkTokens = Number(config.review.maxChunkTokens || 9000);
-  const charsPerToken = Number(config.review.charsPerToken || 4);
+  const maxChunkTokens = Number(config.review.maxChunkTokens);
+  const charsPerToken = Number(config.review.charsPerToken);
   const chunks = chunkDiff(diffText, maxChunkChars, Number(config.review.maxChunks || 12), { maxTokens: maxChunkTokens, charsPerToken });
   const sanitizedTitle = redactSecretsInText(process.env.PR_TITLE || '');
   const sanitizedBody = redactSecretsInText((process.env.PR_BODY || '').slice(0, 12000));
