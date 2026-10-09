@@ -90,6 +90,24 @@ test('bounded first-fit packing reviews all independent sections inside the exis
   assert.deepEqual(chunkDiff(parts.join(''), 1000, 3), result, 'packing must be deterministic');
 });
 
+test('small multiple hunks in one file can be separately packed without omission', () => {
+  const file = (name, hunkSizes) => {
+    const header = 'diff --git a/' + name + ' b/' + name + '\n'
+      + '--- a/' + name + '\n+++ b/' + name + '\n';
+    const hunks = hunkSizes.map((size, i) =>
+      '@@ -' + i + ',0 +' + (i + 1) + ',1 @@\n+' + name + '_' + i + '_'
+        + 'x'.repeat(size) + '\n');
+    return header + hunks.join('');
+  };
+  const combined = file('multi', [380, 380]) + file('second', [425]) + file('third', [425]);
+  const chunks = chunkDiff(combined, 1000, 2);
+  assert.equal(chunks.length, 2, 'two individual multi-file hunks should fit remaining space');
+  assert.ok(chunks.every((chunk) => chunk.length <= 1000));
+  for (const marker of ['+multi_0_', '+multi_1_', '+second_0_', '+third_0_']) {
+    assert.equal(chunks.reduce((sum, chunk) => sum + chunk.split(marker).length - 1, 0), 1);
+  }
+});
+
 test('small ordinary diffs remain unchanged', () => {
   const diff = 'diff --git a/example.txt b/example.txt\n'
     + '--- a/example.txt\n+++ b/example.txt\n'
