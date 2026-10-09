@@ -264,8 +264,11 @@ jobs:
           }
           artifact_name="apes-review-checkpoint-${PR_NUMBER}-${HEAD_SHA}"
           has_artifact() {
-            api "https://api.github.com/repos/$REPOSITORY/actions/runs/$1/artifacts?per_page=100" | \
-              jq -e --arg name "$artifact_name" 'any(.artifacts[]?; .name == $name and .expired == false)' >/dev/null
+            local artifact_response
+            artifact_response="$(api "https://api.github.com/repos/$REPOSITORY/actions/runs/$1/artifacts?per_page=100")"
+            jq -e '.artifacts | type == "array"' <<< "$artifact_response" >/dev/null ||
+              { echo "Malformed GitHub artifact response" >&2; exit 1; }
+            jq -e --arg name "$artifact_name" 'any(.artifacts[]; .name == $name and .expired == false)' <<< "$artifact_response" >/dev/null
           }
           current="$(api "https://api.github.com/repos/$REPOSITORY/actions/runs/$CURRENT_RUN_ID")"
           workflow_id="$(jq -er '.workflow_id | numbers' <<< "$current")"
@@ -274,15 +277,20 @@ jobs:
             previous="$CURRENT_RUN_ID"
           else
             response="$(api "https://api.github.com/repos/$REPOSITORY/actions/workflows/$workflow_id/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
+            # Capture jq exit status: process substitution would silently hide failures.
+            candidates="$(jq -er --arg current "$CURRENT_RUN_ID" --argjson pr "$PR_NUMBER" --arg head "$HEAD_SHA" '
+              if (.workflow_runs | type) != "array" then error("Invalid workflow runs response") else
+                [.workflow_runs[]
+                 | select((.id | tostring) != $current)
+                 | select(.head_sha == $head)
+                 | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
+                 | select(any(.pull_requests[]?; .number == $pr))
+                 | .id] | if length == 0 then "" else join("\\n") end
+              end' <<< "$response")"
             while IFS= read -r candidate; do
               [[ -z "$candidate" ]] && continue
               if has_artifact "$candidate"; then previous="$candidate"; break; fi
-            done < <(jq -r --arg current "$CURRENT_RUN_ID" --argjson pr "$PR_NUMBER" '
-              [.workflow_runs[]
-               | select((.id | tostring) != $current)
-               | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
-               | select(any(.pull_requests[]?; .number == $pr))
-               | .id] | .[]' <<< "$response")
+            done <<< "$candidates"
           fi
           echo "run_id=$previous" >> "$GITHUB_OUTPUT"
           if [[ -n "$previous" ]]; then
