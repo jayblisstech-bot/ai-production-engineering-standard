@@ -271,7 +271,22 @@ async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha) {
   return markers;
 }
 
+const inFlightFindingPublications = new Map();
+
 async function postInlineComment(owner, repo, prNumber, headSha, finding, existingMarkers = null) {
+  const key = [owner, repo, prNumber, headSha, findingFingerprint(headSha, finding)].join(':');
+  const pending = inFlightFindingPublications.get(key);
+  if (pending) {
+    await pending;
+    return false;
+  }
+  const operation = publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers);
+  inFlightFindingPublications.set(key, operation);
+  try { return await operation; }
+  finally { if (inFlightFindingPublications.get(key) === operation) inFlightFindingPublications.delete(key); }
+}
+
+async function publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers = null) {
   const marker = findingMarker(headSha, finding);
   const markers = existingMarkers || await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
   if (markers.has(findingFingerprint(headSha, finding))) return false;
