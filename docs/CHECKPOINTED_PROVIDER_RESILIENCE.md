@@ -1,0 +1,47 @@
+# APES checkpointed review and provider resilience
+
+This document describes the implementation on `feat/checkpointed-provider-failover`, not a production release guarantee. Do not enable the branch for downstream production callers until the open PR passes independent review and is explicitly approved.
+
+## Gemini credential and model failover
+
+- Gemini credentials are independent project/account capacity boundaries. For a selected model, the pool attempts all currently eligible credentials under the default policy before model fallback.
+- HTTP 429 is credential/model scoped. Honor `Retry-After` where appropriate, cool down that credential/model combination, and rotate to another eligible project.
+- Structured invalid-key errors (`API_KEY_INVALID`, including HTTP 400) and HTTP 401 quarantine the affected credential. HTTP 403 is model/credential scoped rather than indiscriminate account-wide quarantine.
+- Model 404 marks the selected model unavailable for the current run. Network failures and 5xx errors use bounded retries/cooldowns; a persistent provider failure moves on according to model fallback.
+- Token-count wording in a 429 does **not** mean the prompt exceeded the context window. Genuine context overflow on an appropriate client-error response takes the context-compaction route.
+- Gemini API keys are sent using the supported `x-goog-api-key` header, never in the generation-request URL. Public telemetry uses opaque credential IDs.
+
+## Work chunking and checkpoint integrity
+
+- Deterministic diff chunks respect file/hunk boundaries and both character and estimated-token budgets. An indivisible oversized hunk fails explicitly rather than silently truncating the diff.
+- The checkpoint identity includes the task, target/head and an ordered hash of chunks, review prompt, contextual evidence and review metadata. A changed contract is not considered the same completed task.
+- Each valid chunk result is normalized, persisted to a temporary file and atomically renamed **before** the in-memory completion state changes. This protects against ordinary write/rename failure; no stronger durability guarantee (such as power-loss-safe `fsync`) is claimed.
+- Restored findings are validated against the current diff line index before being reused. Corrupt, schema-invalid or identity-mismatched checkpoints are quarantined and review starts again at chunk zero. Such recovery must be logged and is not reported as a successful resume.
+- Checkpoints contain normalized findings and opaque provider route identifiers, not API keys. A chunk is complete only when its checkpoint commit succeeds. Failed or uncommitted chunks may be retried; valid completed chunks are skipped.
+- Context compaction preserves as much validated project context as the limit allows. It is **not** a guarantee that every document section remains intact if a single section exceeds the budget.
+
+## GitHub Actions artifact recovery
+
+- The workflow associates a checkpoint with the same workflow identity, PR, head SHA and named non-expired artifact; same-run reruns can consider an artifact from an earlier attempt.
+- Selected artifact downloads fail visibly on errors; no checkpoint means a fresh review, not a false resume.
+- The artifact has seven-day retention and is uploaded on an `always()` step where an active checkpoint exists. The workflow may lose recent completed chunks if the runner is terminated before upload; job failure and artifact upload are not a transactional commit.
+- Changing the PR head SHA invalidates old checkpoint state. Long-lived distributed exactly-once execution across different GitHub runs is not guaranteed. Controlled real-workflow rerun testing remains a release acceptance requirement.
+
+## Review finding publication
+
+- Inline finding markers are scoped to the PR head SHA and are recognized only when authored by the known GitHub Actions bot identity.
+- Pagination covers existing PR review comments. In-process concurrent publishing of the identical finding is serialized and rerun publication skips trusted markers already present.
+- HTTP 422 posting errors are rechecked against trusted GitHub comments before being classified as a failure; genuinely unpostable findings fail the run.
+- GitHub comment creation is **not atomic** with marker lookup. An external process that bypasses the per-PR GitHub Actions concurrency group can still race and duplicate a comment. Exact semantic deduplication of differently worded findings at the same location is also not proven.
+- Publication must finish successfully before the AI job can report success. The final gate verifies the declared completed/required chunk counts and completed checkpoint status.
+
+## Remaining release blockers
+
+1. Real GitHub workflow rerun/cancellation and artifact restore verification.
+2. Broader end-to-end failure-injection and meaningful mutation testing across the primary orchestration path.
+3. Independently review publication races, comment fingerprint stability, and provider classification edge cases.
+4. Check the reusable workflow's default `pipeline_ref` and all callers: the historical default may reference a runtime that predates checkpoints. Do not silently switch downstream apps to an unreviewed ref.
+5. Confirm supply-chain scan, prompt-injection resilience, secret redaction, and any applicable global execution deadline.
+6. Obtain an independent reviewer verdict on the final commit and explicit human merge authorization.
+
+**Current release policy:** draft PR, no merge, no production deployment, no downstream Numerra/SMMTAI changes.
