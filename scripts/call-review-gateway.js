@@ -50,6 +50,74 @@ Return ONLY JSON:
   ]
 }`;
 
+function splitOversizedHunk(hunk, fileHeader, maxChars) {
+  const headerEnd = hunk.indexOf('\n');
+  if (headerEnd < 0) throw new Error('Oversized diff hunk has no body; refusing to drop review context.');
+  const original = hunk.slice(0, headerEnd);
+  const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(original);
+  if (!match) throw new Error('Oversized diff hunk has an invalid unified-diff header.');
+  const suffix = match[3];
+  let oldLine = Number(match[1]);
+  let newLine = Number(match[2]);
+  let startOld = oldLine;
+  let startNew = newLine;
+  let countOld = 0;
+  let countNew = 0;
+  let body = '';
+  const fragments = [];
+
+  const buildHeader = (o, oc, n, nc) =>
+    '@@ -' + o + ',' + oc + ' +' + n + ',' + nc + ' @@' + suffix + '\n';
+
+  function emit() {
+    if (!body) return;
+    const fragment = buildHeader(startOld, countOld, startNew, countNew) + body;
+    if (fileHeader.length + fragment.length > maxChars) {
+      throw new Error('Diff chunk size boundary exceeded; refusing incomplete AI review.');
+    }
+    fragments.push(fragment);
+  }
+
+  // Preserve the exact changed/context lines, and bind the no-newline marker
+  // to its preceding line. Only the synthetic hunk headers are regenerated.
+  const lines = hunk.slice(headerEnd + 1).match(/[^\n]*\n|[^\n]+$/g) || [];
+  const units = [];
+  for (const line of lines) {
+    if (line.startsWith('\\ ') && units.length) units[units.length - 1] += line;
+    else units.push(line);
+  }
+
+  for (const unit of units) {
+    const prefix = unit[0];
+    if (prefix !== ' ' && prefix !== '+' && prefix !== '-') {
+      throw new Error('Unexpected unified-diff body line; refusing incomplete AI review.');
+    }
+    const addedOld = prefix === ' ' || prefix === '-' ? 1 : 0;
+    const addedNew = prefix === ' ' || prefix === '+' ? 1 : 0;
+    const prospectiveLength = () => fileHeader.length
+      + buildHeader(startOld, countOld + addedOld, startNew, countNew + addedNew).length
+      + body.length + unit.length;
+    if (body && prospectiveLength() > maxChars) {
+      emit();
+      body = '';
+      startOld = oldLine;
+      startNew = newLine;
+      countOld = 0;
+      countNew = 0;
+    }
+    if (prospectiveLength() > maxChars) {
+      throw new Error('A single diff line exceeds maxChunkChars. Split the changed source line before AI review.');
+    }
+    body += unit;
+    countOld += addedOld;
+    countNew += addedNew;
+    oldLine += addedOld;
+    newLine += addedNew;
+  }
+  emit();
+  return fragments;
+}
+
 function splitOversizedFileSection(section, maxChars) {
   if (section.length <= maxChars) return [section];
   const hunkAt = section.indexOf('\n@@ ');
@@ -59,11 +127,19 @@ function splitOversizedFileSection(section, maxChars) {
   const chunks = [];
   let current = header;
   for (const hunk of hunks) {
-    if ((header + hunk).length > maxChars) throw new Error('A single diff hunk exceeds maxChunkChars. Split the PR before AI review.');
-    if ((current + hunk).length > maxChars && current !== header) {
-      chunks.push(current);
-      current = header + hunk;
-    } else current += hunk;
+    const parts = (header + hunk).length <= maxChars
+      ? [hunk]
+      : splitOversizedHunk(hunk, header, maxChars);
+    for (const part of parts) {
+      if ((current + part).length > maxChars && current !== header) {
+        chunks.push(current);
+        current = header;
+      }
+      if ((current + part).length > maxChars) {
+        throw new Error('Diff chunk exceeds maxChunkChars; refusing partial review.');
+      }
+      current += part;
+    }
   }
   if (current !== header) chunks.push(current);
   return chunks;
