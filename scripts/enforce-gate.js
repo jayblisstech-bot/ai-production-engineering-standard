@@ -44,6 +44,14 @@ function evaluateGate(input) {
   const p0 = p0Parsed.value;
   const p1 = p1Parsed.value;
 
+  if (!intentionalAiSkip) {
+    const reviewed = parseNonNegativeCount(input.reviewedChunks, 'REVIEWED_CHUNKS');
+    const required = parseNonNegativeCount(input.requiredChunks, 'REQUIRED_CHUNKS');
+    if (reviewed.error) errors.push(reviewed.error);
+    if (required.error) errors.push(required.error);
+    if (!reviewed.error && !required.error && (required.value < 1 || reviewed.value !== required.value)) errors.push('AI review chunk coverage is incomplete or inconsistent.');
+    if (!isTrue(input.checkpointComplete)) errors.push('AI review checkpoint is not fully complete.');
+  }
   const verdict = input.verdict || (intentionalAiSkip ? 'PASS' : 'MISSING');
   if (Number.isFinite(p0) && Number.isFinite(p1) && (p0 > 0 || p1 > 0 || verdict === 'BLOCK')) {
     errors.push(`blocking AI findings remain (verdict=${verdict}, P0=${p0}, P1=${p1})`);
@@ -63,6 +71,9 @@ function main() {
     p0Count: process.env.P0_COUNT,
     p1Count: process.env.P1_COUNT,
     restrictedPr: process.env.RESTRICTED_PR,
+    reviewedChunks: process.env.REVIEWED_CHUNKS,
+    requiredChunks: process.env.REQUIRED_CHUNKS,
+    checkpointComplete: process.env.CHECKPOINT_COMPLETE,
   });
   console.log(`Verdict: ${result.verdict} | P0: ${result.p0} | P1: ${result.p1}`);
   result.warnings.forEach((w) => console.warn(`WARNING: ${w}`));
