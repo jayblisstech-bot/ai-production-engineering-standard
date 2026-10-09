@@ -195,7 +195,7 @@ class GeminiCredentialPool {
           this.disableCredential(credential.id, 'invalid-api-key');
           break;
         }
-        if (res.status === 400 && /(?:context\\s*(?:window|length)|maximum\\s*context|input\\s*token\\s*count).{0,100}(?:exceed|too\\s*(?:long|large)|limit)|(?:exceed|too\\s*(?:long|large)).{0,100}(?:context\\s*(?:window|length)|input\\s*token)/i.test(body)) {
+        if (res.status === 400 && /(?:context\s*(?:window|length)|maximum\s*context|input\s*token\s*count).{0,100}(?:exceed|too\s*(?:long|large)|limit)|(?:exceed|too\s*(?:long|large)).{0,100}(?:context\s*(?:window|length)|input\s*token)/i.test(body)) {
           throw Object.assign(new Error('Gemini context window exceeded.'), { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
         }
         if (res.status === 429) {
