@@ -46,9 +46,8 @@ class ReviewCheckpoint {
 
   load() {
     if (!fs.existsSync(this.path)) return this;
-    let parsed;
-    try { parsed = JSON.parse(fs.readFileSync(this.path, 'utf8')); }
-    catch (err) { throw new Error(`Checkpoint exists but is unreadable: ${err.message}`); }
+    try {
+    const parsed = JSON.parse(fs.readFileSync(this.path, 'utf8'));
     if (parsed.schemaVersion !== 2) throw new Error('Unsupported checkpoint schema version.');
     if (parsed.taskId !== this.taskId || parsed.chunkCount !== this.chunkCount || parsed.headSha !== this.headSha || parsed.reviewTarget !== this.reviewTarget || parsed.planHash !== this.planHash) {
       throw new Error('Checkpoint identity mismatch; refusing to resume a different review task.');
@@ -65,7 +64,17 @@ class ReviewCheckpoint {
       if (entry.providers.some(p => typeof p !== 'string' || !p.trim())) throw new Error('Checkpoint providers are malformed.');
     }
     this.state = parsed;
+    this.restored = true;
     return this;
+    } catch (_) {
+      // Never replay corrupt or wrong-plan state. Remove it from the active path.
+      const quarantinePath = `${this.path}.invalid.${process.pid}.${Date.now()}`;
+      fs.renameSync(this.path, quarantinePath);
+      this.restored = false;
+      this.invalidCheckpointQuarantined = true;
+      console.warn('APES_CHECKPOINT_INVALID: checkpoint quarantined; restarting uncommitted review from chunk zero.');
+      return this;
+    }
   }
 
   isComplete(index) {
