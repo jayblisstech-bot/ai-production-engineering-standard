@@ -179,8 +179,24 @@ class GeminiCredentialPool {
         }
 
         const body = await res.text();
-        if (/(context(?:\\s+window|\\s+length)?|token(?:s|\\s+limit)?|prompt|input).{0,80}(?:too\\s+long|too\\s+large|exceed|maximum|limit|overflow)|(?:maximum|limit|exceed|overflow).{0,80}(?:context|token|prompt|input)/i.test(body)) {
-          throw Object.assign(new Error(`Gemini context overflow: ${body.slice(0, 500)}`), { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
+        // HTTP status and structured provider codes take precedence over textual hints.
+        // Quota errors frequently mention input_token_count and token limits.
+        let errorCode = '';
+        try {
+          const parsed = JSON.parse(body);
+          errorCode = String(parsed?.error?.details?.find?.((d) => d?.reason || d?.metadata?.reason)?.reason
+            || parsed?.error?.status || parsed?.error?.code || '');
+          if (!/API_KEY_INVALID/i.test(errorCode) && Array.isArray(parsed?.error?.details)) {
+            if (parsed.error.details.some((d) => /API_KEY_INVALID/i.test(JSON.stringify(d)))) errorCode = 'API_KEY_INVALID';
+          }
+        } catch (_) { /* Text-only provider response. */ }
+        if ((res.status === 400 || res.status === 401) && /API_KEY_INVALID|API_KEY_EXPIRED|INVALID_API_KEY/i.test(errorCode)) {
+          errors.push(`${credential.id}: invalid API credential`);
+          this.disableCredential(credential.id, 'invalid-api-key');
+          break;
+        }
+        if (res.status === 400 && /(?:context\\s*(?:window|length)|maximum\\s*context|input\\s*token\\s*count).{0,100}(?:exceed|too\\s*(?:long|large)|limit)|(?:exceed|too\\s*(?:long|large)).{0,100}(?:context\\s*(?:window|length)|input\\s*token)/i.test(body)) {
+          throw Object.assign(new Error('Gemini context window exceeded.'), { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
         }
         if (res.status === 429) {
           const cooldownMs = retryAfterMs(res, this.cooldown429Ms);
