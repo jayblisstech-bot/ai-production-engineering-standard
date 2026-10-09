@@ -289,7 +289,17 @@ async function postInlineComment(owner, repo, prNumber, headSha, finding, existi
 async function publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers = null) {
   const marker = findingMarker(headSha, finding);
   const markers = existingMarkers || await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
-  if (markers.has(findingFingerprint(headSha, finding))) return false;
+  const fingerprint = findingFingerprint(headSha, finding);
+  if (markers.has(fingerprint)) return false;
+  // A cached marker snapshot may be stale after another worker published.
+  // Reconcile immediately before posting to narrow the cross-run race window.
+  if (existingMarkers) {
+    const refreshed = await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
+    if (refreshed.has(fingerprint)) {
+      markers.add(fingerprint);
+      return false;
+    }
+  }
 
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
     method: 'POST',
