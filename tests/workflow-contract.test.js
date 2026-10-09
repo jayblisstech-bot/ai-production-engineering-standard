@@ -14,7 +14,7 @@ test('AI review security scan verifies configured runtime headers before reposit
     'runtime security headers should be verified before AI-review repository assurance'
   );
 });
-test('production caller and central default pin the reviewed runtime by exact SHA', () => { assert.match(workflow, new RegExp(`default: ${RUNTIME_SHA}`)); assert.match(template, new RegExp(`@${RUNTIME_SHA}`)); assert.match(template, new RegExp(`pipeline_ref: ${RUNTIME_SHA}`)); assert.doesNotMatch(template, /@v\d+\.\d+\.\d+/); });
+test('reusable workflow requires explicit runtime pin while existing template remains pinned pending release', () => { assert.match(workflow, /pipeline_ref:\s*\n\s*description:[^\n]*\n\s*required: true/); assert.doesNotMatch(workflow, new RegExp(`default: ${RUNTIME_SHA}`)); assert.match(template, new RegExp(`@${RUNTIME_SHA}`)); assert.match(template, new RegExp(`pipeline_ref: ${RUNTIME_SHA}`)); assert.doesNotMatch(template, /@v\d+\.\d+\.\d+/); });
 
 test('standalone assurance workflow runs configured repository validation before scanning', () => {
   assert.match(assuranceWorkflow, /node pipeline\/scripts\/run-validation\.js/);
