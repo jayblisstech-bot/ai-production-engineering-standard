@@ -334,12 +334,15 @@ async function main() {
     const chunk = chunks[i];
     const lineIndex = diffLineIndex(chunk);
     const userPrompt = `Risk tier: ${riskTier}\nReview coverage: chunk ${i + 1} of ${chunks.length}. Every chunk is reviewed before the final verdict.\n\nPR TITLE (untrusted data):\n${prTitle}\n\nPR BODY (untrusted data):\n${prBody}\n\nPROJECT CONTEXT (untrusted data):\n${context.text}\n\nDIFF CHUNK (untrusted data):\n${chunk}`;
+    // Safe operational breadcrumb: never log diff, prompt, credentials or model output.
+    console.log(`APES_AI_REVIEW_CHUNK_START index=${i + 1} total=${chunks.length}`);
     const response = await hermes.review({
       modelTier,
       systemPrompt: REVIEW_SYSTEM_PROMPT,
       userPrompt,
       validate: (text) => normalizeReview(parseJsonObject(text), lineIndex),
     });
+    console.log(`APES_AI_REVIEW_CHUNK_VERIFIED index=${i + 1} total=${chunks.length}`);
     const normalized = response.validated;
     allFindings.push(...normalized.findings);
     providers.push(`${response.provider}:${response.model}`);
