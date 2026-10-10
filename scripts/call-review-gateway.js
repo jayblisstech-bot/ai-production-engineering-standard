@@ -418,7 +418,6 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
   const resumedChunks = [];
   const hermes = createHermes(config);
   for (let i = 0; i < chunks.length; i++) {
-    remainingDeadlineMs(providerDeadlineMs);
     const saved = checkpoint.completed(i);
     if (saved) {
       allFindings.push(...saved.findings);
@@ -426,6 +425,7 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
       resumedChunks.push(i + 1);
       continue;
     }
+    remainingDeadlineMs(providerDeadlineMs);
 
     const chunk = chunks[i];
     const lineIndex = diffLineIndex(chunk);
@@ -444,7 +444,6 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
           deadlineMs: providerDeadlineMs,
           validate: (text) => normalizeReview(parseJsonObject(text), lineIndex),
         });
-        remainingDeadlineMs(providerDeadlineMs);
         break;
       } catch (err) {
         if (err.code !== 'CONTEXT_OVERFLOW' || !reviewContext || reviewContext.length <= 4000 || contextCompactions >= 3) throw err;
@@ -454,10 +453,11 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
         console.warn(`Provider context overflow on chunk ${i + 1}; compacting review context and retrying the same uncommitted chunk (compaction ${contextCompactions}).`);
       }
     }
-    remainingDeadlineMs(providerDeadlineMs);
     const normalized = response.validated;
     const providerRoute = [`${response.provider}:${response.model}`];
     checkpoint.commit(i, { findings: normalized.findings, providers: providerRoute });
+    // Preserve a validated paid chunk even if the deadline has just elapsed.
+    remainingDeadlineMs(providerDeadlineMs);
     allFindings.push(...normalized.findings);
     providers.push(...providerRoute);
   }
