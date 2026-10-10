@@ -57,3 +57,12 @@ test('review deadline starts before checkout and leaves headroom under 20-minute
   assert.match(review, /date \+%s\) \+ 960/);
   assert.ok(review.indexOf('Establish bounded review wall-clock budget') < review.indexOf('Checkout project PR head'));
 });
+
+test('project template uses and pipeline_ref pin the identical immutable approved runtime', () => {
+  const caller = fs.readFileSync(path.join(__dirname, '..', 'templates/project-repo/.github/workflows/ai-review.yml'), 'utf8');
+  const uses = caller.match(/^    uses: [^\n]+\/\.github\/workflows\/ai-review\.yml@([a-f0-9]{40})$/m);
+  const pipelineRef = caller.match(/^      pipeline_ref: ([a-f0-9]{40})$/m);
+  assert.ok(uses, 'reusable workflow must pin a full 40-character commit SHA');
+  assert.ok(pipelineRef, 'pipeline_ref must pin a full 40-character commit SHA');
+  assert.equal(uses[1], pipelineRef[1], 'the caller and pipeline runtime must point to exactly the same commit');
+});
