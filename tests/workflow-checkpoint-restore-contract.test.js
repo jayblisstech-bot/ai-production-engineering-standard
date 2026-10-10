@@ -48,3 +48,12 @@ test('shipped project caller preserves all permissions needed by reusable review
   assert.match(review, /^      actions: read$/m);
   assert.match(review, /^      pull-requests: write$/m);
 });
+
+test('review deadline starts before checkout and leaves headroom under 20-minute job limit', () => {
+  const yaml = fs.readFileSync(path.join(__dirname,'..','.github/workflows/ai-review.yml'),'utf8');
+  const review = yaml.slice(yaml.indexOf('  ai-review:'),yaml.indexOf('  quality-gate:'));
+  assert.match(review, /timeout-minutes: 20/);
+  assert.match(review, /APES_REVIEW_DEADLINE_MS/);
+  assert.match(review, /date \+%s\) \+ 960/);
+  assert.ok(review.indexOf('Establish bounded review wall-clock budget') < review.indexOf('Checkout project PR head'));
+});
