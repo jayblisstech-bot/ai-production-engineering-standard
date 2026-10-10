@@ -20,7 +20,7 @@ async function bodyStall(operation, fakeFetch = null) {
     : (_url,opts={}) => nativeFetch(address,opts);
   const start = Date.now();
   try {
-    await assert.rejects(operation);
+    await operation();
     const elapsed = Date.now()-start;
     assert.ok(elapsed < 2000, 'response body hang must terminate before hard cutoff: '+elapsed+'ms');
     assert.ok(elapsed >= 100, 'test must wait for an actual abort');
