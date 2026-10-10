@@ -124,7 +124,7 @@ test('AI review reduces unchanged context while deterministic scanners retain de
   const after = workflow.slice(workflow.indexOf(reviewMarker));
   assert.equal((before.match(/--unified=80/g) || []).length, 2,
     'secret scanning and deterministic gate must keep deep context');
-  assert.ok(after.includes('git diff --no-ext-diff --unified=8'),
+  assert.ok(after.includes('git diff --no-ext-diff --unified=3'),
     'the AI reviewer must still receive a complete changed-line unified diff');
   assert.equal((after.match(/--unified=80/g) || []).length, 0);
 });
