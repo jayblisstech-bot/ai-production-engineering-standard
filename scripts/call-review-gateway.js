@@ -353,7 +353,8 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
   const rawDeadline = process.env.APES_REVIEW_DEADLINE_MS;
   const deadlineMs = rawDeadline === undefined ? Date.now() + DEFAULT_REVIEW_BUDGET_MS : Number(rawDeadline);
   const providerDeadlineMs = deadlineMs - PUBLICATION_RESERVE_MS;
-  remainingDeadlineMs(providerDeadlineMs);
+  // A fully checkpointed review can still publish during its reserved window.
+  // Enforce the earlier deadline only when starting an uncommitted provider chunk.
   const riskTier = process.env.RISK_TIER || 'MEDIUM';
   const modelTier = process.env.MODEL_TIER || 'medium';
   if (modelTier === 'skip') throw new Error('AI gateway should not be invoked for model_tier=skip.');
