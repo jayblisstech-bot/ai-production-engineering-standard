@@ -34,3 +34,17 @@ test('all APES review jobs share a PR-scoped concurrency group', () => {
   assert.match(ai, /pull-requests: write/);
   assert.doesNotMatch(ai, /^    concurrency:/m, 'AI review must not override the workflow-wide PR lock');
 });
+
+test('shipped project caller preserves all permissions needed by reusable review jobs', () => {
+  const caller = fs.readFileSync(path.join(__dirname, '..', 'templates/project-repo/.github/workflows/ai-review.yml'), 'utf8');
+  const called = fs.readFileSync(path.join(__dirname, '..', '.github/workflows/ai-review.yml'), 'utf8');
+  const callerPermissions = caller.match(/  call-apes-v1:\n    permissions:\n((?:      [^\n]+\n)+)/);
+  assert.ok(callerPermissions, 'caller permissions block must exist');
+  const grants = new Map([...callerPermissions[1].matchAll(/^      ([\w-]+): (\w+)$/gm)].map(([, name, level]) => [name, level]));
+  for (const [name, needed] of [['actions','read'], ['contents','read'], ['pull-requests','write']]) {
+    assert.equal(grants.get(name), needed, `caller must grant ${name}: ${needed}`);
+  }
+  const review = called.slice(called.indexOf('  ai-review:'), called.indexOf('  quality-gate:'));
+  assert.match(review, /^      actions: read$/m);
+  assert.match(review, /^      pull-requests: write$/m);
+});
