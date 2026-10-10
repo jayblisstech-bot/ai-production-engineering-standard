@@ -44,11 +44,9 @@ function parseGeminiCredentials(env = process.env) {
   return credentials;
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(url, { ...options, signal: controller.signal }); }
-  finally { clearTimeout(timer); }
+const { fetchBufferedResponse } = require('./http-bounded');
+async function fetchWithTimeout(url, options, timeoutMs, deadlineMs = null) {
+  return fetchBufferedResponse(url, options, timeoutMs, deadlineMs);
 }
 
 function retryAfterMs(res, fallbackMs) {
@@ -167,7 +165,7 @@ class GeminiCredentialPool {
               contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
               generationConfig,
             }),
-          }, requestTimeoutMs);
+          }, requestTimeoutMs, deadlineMs);
           checkModelBudget();
         } catch (err) {
           if (err.code === 'REVIEW_DEADLINE_EXCEEDED' || err.code === 'MODEL_TIME_BUDGET_EXCEEDED') throw err;
@@ -242,7 +240,7 @@ class GeminiCredentialPool {
           errors.push(`${credential.id}: HTTP ${res.status}`);
           this.telemetry.push({ provider: 'gemini', credentialId: credential.id, model, event: 'server-error', status: res.status, attempt: attempt + 1 });
           if (attempt < this.maxRetriesPerCredential) {
-            await sleep(this.backoffBaseMs * (2 ** attempt) + Math.floor(Math.random() * 250));
+            await sleep(Math.min(this.backoffBaseMs * (2 ** attempt) + Math.floor(Math.random() * 250), checkModelBudget()));
             continue;
           }
           this.markCooldown(credential.id, model, this.transientCooldownMs, `HTTP ${res.status}`);
