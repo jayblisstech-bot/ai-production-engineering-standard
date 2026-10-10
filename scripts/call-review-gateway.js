@@ -11,6 +11,7 @@ const {
 const { detectSecretsInText, scanDiff, redactSecretsInText } = require('./scan-secrets');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
 const { ReviewCheckpoint, stableTaskId } = require('./review-checkpoint');
+const { DEFAULT_REVIEW_BUDGET_MS, PUBLICATION_RESERVE_MS, remainingDeadlineMs } = require('./review-deadline');
 const ALLOWED_SEVERITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 
 const REVIEW_SYSTEM_PROMPT = `You are an independent production pull-request reviewer.
@@ -338,6 +339,11 @@ function dedupeFindings(findings) {
 }
 
 async function main({ createHermes = (config) => new HermesOrchestrator({ config }) } = {}) {
+  // The workflow supplies a job-relative absolute deadline; local runs get a safe default.
+  const rawDeadline = process.env.APES_REVIEW_DEADLINE_MS;
+  const deadlineMs = rawDeadline === undefined ? Date.now() + DEFAULT_REVIEW_BUDGET_MS : Number(rawDeadline);
+  const providerDeadlineMs = deadlineMs - PUBLICATION_RESERVE_MS;
+  remainingDeadlineMs(providerDeadlineMs);
   const riskTier = process.env.RISK_TIER || 'MEDIUM';
   const modelTier = process.env.MODEL_TIER || 'medium';
   if (modelTier === 'skip') throw new Error('AI gateway should not be invoked for model_tier=skip.');
@@ -402,6 +408,7 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
   const resumedChunks = [];
   const hermes = createHermes(config);
   for (let i = 0; i < chunks.length; i++) {
+    remainingDeadlineMs(providerDeadlineMs);
     const saved = checkpoint.completed(i);
     if (saved) {
       allFindings.push(...saved.findings);
@@ -417,14 +424,17 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
     let response;
     let contextCompactions = 0;
     for (;;) {
+      remainingDeadlineMs(providerDeadlineMs);
       const userPrompt = buildReviewUserPrompt({ riskTier, chunkIndex: i + 1, chunkCount: chunks.length, prTitle, prBody, reviewContext, priorFindings, chunk });
       try {
         response = await hermes.review({
           modelTier,
           systemPrompt: REVIEW_SYSTEM_PROMPT,
           userPrompt,
+          deadlineMs: providerDeadlineMs,
           validate: (text) => normalizeReview(parseJsonObject(text), lineIndex),
         });
+        remainingDeadlineMs(providerDeadlineMs);
         break;
       } catch (err) {
         if (err.code !== 'CONTEXT_OVERFLOW' || !reviewContext || reviewContext.length <= 4000 || contextCompactions >= 3) throw err;
@@ -434,6 +444,7 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
         console.warn(`Provider context overflow on chunk ${i + 1}; compacting review context and retrying the same uncommitted chunk (compaction ${contextCompactions}).`);
       }
     }
+    remainingDeadlineMs(providerDeadlineMs);
     const normalized = response.validated;
     const providerRoute = [`${response.provider}:${response.model}`];
     checkpoint.commit(i, { findings: normalized.findings, providers: providerRoute });
@@ -451,8 +462,14 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
 
   const [owner, repo] = String(process.env.GITHUB_REPOSITORY || '').split('/');
   if (!owner || !repo || !process.env.PR_NUMBER || !process.env.HEAD_SHA || !process.env.GITHUB_TOKEN) throw new Error('GitHub PR context/token is incomplete; required inline comments cannot be guaranteed.');
+  remainingDeadlineMs(deadlineMs);
   const existingMarkers = await fetchExistingFindingMarkers(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA);
-  for (const finding of findings) await postInlineComment(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, finding, existingMarkers);
+  remainingDeadlineMs(deadlineMs);
+  for (const finding of findings) {
+    remainingDeadlineMs(deadlineMs);
+    await postInlineComment(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, finding, existingMarkers);
+  }
+  remainingDeadlineMs(deadlineMs);
 
   const result = {
     verdict,
