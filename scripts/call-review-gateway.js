@@ -129,9 +129,22 @@ function splitOversizedFileSection(section, maxChars) {
   if (!hunks.length) throw new Error('Diff file has no reviewable hunks; refusing incomplete review.');
   // Even small hunks are standalone review units. Their repeated file headers
   // make every unit independently mappable, and allow efficient bounded packing.
-  const parts = hunks.flatMap((hunk) => (header + hunk).length <= maxChars
-    ? [hunk]
-    : splitOversizedHunk(hunk, header, maxChars));
+  // Bounded medium-sized fragments pack substantially better than near-full
+  // 45k hunks. This changes packing granularity, not review limits or coverage.
+  const preferredUnitSize = Math.max(600, Math.floor(maxChars / 4));
+  const parts = hunks.flatMap((hunk) => {
+    if ((header + hunk).length <= preferredUnitSize) return [hunk];
+    // If one unusually long source line cannot fit the preferred unit size,
+    // retain the intact hunk if it still fits the real maxChars budget.
+    try {
+      return splitOversizedHunk(hunk, header, preferredUnitSize);
+    } catch (error) {
+      if ((header + hunk).length <= maxChars
+        && error instanceof Error
+        && error.message.includes('single diff line exceeds maxChunkChars')) return [hunk];
+      throw error;
+    }
+  });
   const sections = parts.map((part) => header + part);
   if (sections.some((part) => part.length > maxChars)) {
     throw new Error('A diff unit exceeds maxChunkChars; refusing incomplete AI review.');
