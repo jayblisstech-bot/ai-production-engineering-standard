@@ -83,3 +83,24 @@ test('Gemini per-model budget forces model fallback without waiting through ever
     assert.equal(fallbackCalls,1);
   } finally { Date.now=oldNow;global.fetch=oldFetch; }
 });
+
+test('Gemini HTTP 5xx retry sleep respects the remaining model budget (regression for N-03)', {timeout: 3000}, async () => {
+  const previous = global.fetch;
+  let attempts = 0;
+  global.fetch = async () => {
+    attempts++;
+    return new Response(JSON.stringify({error:{code:503,message:'service unavailable'}}), {status:503});
+  };
+  const started = Date.now();
+  try {
+    const pool = new GeminiCredentialPool([{id:'project-a',key:'test-key'}], {
+      modelBudgetMs: 45, backoffBaseMs: 900, maxRetriesPerCredential: 1,
+      timeoutMs: 1000, transientCooldownMs: 1000,
+    });
+    await assert.rejects(() => pool.request('model','system','user'),
+      err => err.code === 'MODEL_TIME_BUDGET_EXCEEDED');
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 350, `5xx retry must never sleep past model budget, elapsed ${elapsed} ms`);
+    assert.equal(attempts, 1, 'budget expiry must stop the next request');
+  } finally { global.fetch = previous; }
+});
