@@ -10,6 +10,7 @@
  *   - API keys are never returned in telemetry.
  */
 
+const { remainingDeadlineMs, boundedRequestTimeoutMs } = require('./review-deadline');
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function parseGeminiCredentials(env = process.env) {
@@ -114,6 +115,8 @@ class GeminiCredentialPool {
   }
 
   async request(model, systemPrompt, userPrompt, options = {}) {
+    const deadlineMs = options.deadlineMs ?? null;
+    remainingDeadlineMs(deadlineMs);
     if (this.modelUnavailable.has(model)) {
       throw Object.assign(new Error(`Gemini model ${model} is marked unavailable for this run.`), { code: 'MODEL_UNAVAILABLE', fallbackEligible: true });
     }
@@ -134,10 +137,12 @@ class GeminiCredentialPool {
     let transientCredentialFailures = 0;
 
     for (const { credential, index } of candidates) {
+      remainingDeadlineMs(deadlineMs);
       this.cursor = (index + 1) % this.credentials.length;
       let credentialTransientFailure = false;
 
       for (let attempt = 0; attempt <= this.maxRetriesPerCredential; attempt++) {
+        const requestTimeoutMs = boundedRequestTimeoutMs(this.timeoutMs, deadlineMs);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
         let res;
         try {
@@ -152,12 +157,15 @@ class GeminiCredentialPool {
               contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
               generationConfig,
             }),
-          }, this.timeoutMs);
+          }, requestTimeoutMs);
+          remainingDeadlineMs(deadlineMs);
         } catch (err) {
+          if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
+          remainingDeadlineMs(deadlineMs);
           errors.push(`${credential.id}: network/timeout`);
           this.telemetry.push({ provider: 'gemini', credentialId: credential.id, model, event: 'network-error', attempt: attempt + 1 });
           if (attempt < this.maxRetriesPerCredential) {
-            await sleep(this.backoffBaseMs * (2 ** attempt) + Math.floor(Math.random() * 250));
+            await sleep(Math.min(this.backoffBaseMs * (2 ** attempt) + Math.floor(Math.random() * 250), remainingDeadlineMs(deadlineMs)));
             continue;
           }
           this.markCooldown(credential.id, model, this.transientCooldownMs, 'network');
@@ -253,8 +261,10 @@ class GeminiCredentialPool {
     if (!Array.isArray(models) || !models.length) throw new Error('No Gemini models configured for the requested capability.');
     const errors = [];
     for (const model of models) {
+      remainingDeadlineMs(options.deadlineMs ?? null);
       try { return await this.request(model, systemPrompt, userPrompt, options); }
       catch (err) {
+        if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
         errors.push(`${model}: ${err.message}`);
         if (err.fallbackEligible === false) throw err;
       }
