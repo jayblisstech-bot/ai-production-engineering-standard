@@ -31,6 +31,7 @@ This document describes the implementation on `feat/checkpointed-provider-failov
 - The gateway reserves the last 90 seconds of that review deadline for publication and final output; any unfinished model call or uncommitted chunk fails closed when its earlier provider deadline is reached.
 - Hermes forwards one shared absolute deadline across every provider, capability and model; a fallback attempt does not restart the clock. Each network request is limited to the smaller of its configured timeout and the remaining deadline.
 - Gemini independently limits attempts on any single model to two minutes across all credentials, then permits model fallback if the **global** deadline still allows it. An expired global deadline always stops the entire review, regardless of available credentials.
+- GitHub review-comment lookup and publication requests are individually capped at 20 seconds or the smaller remaining global deadline, with deadline validation before publishing. A stalled body parser or external infrastructure failure can still be terminated by the GitHub Actions hard timeout.
 - Successfully persisted chunks survive deadline failure. Any unfinished chunk is not committed or published as a successful review. The artifact upload remains a best-effort `always()` step and cannot be guaranteed after forcible job cancellation.
 - These deadlines reduce timeout risk but do not prove live Gemini/provider behavior or that a blocked GitHub API endpoint always completes before the Actions hard timeout.
 
