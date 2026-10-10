@@ -74,6 +74,9 @@ class GeminiCredentialPool {
     this.transientModelCooldowns = new Map();
     this.modelUnavailable = new Set();
     this.timeoutMs = Number(options.timeoutMs || 90000);
+    // One slow model must not consume the whole review budget across many projects.
+    this.modelBudgetMs = Number(options.modelBudgetMs ?? 120000);
+    if (!Number.isSafeInteger(this.modelBudgetMs) || this.modelBudgetMs <= 0) throw new Error('Invalid Gemini per-model time budget.');
     this.cooldown429Ms = Number(options.cooldown429Ms || 60000);
     this.transientCooldownMs = Number(options.transientCooldownMs || 15000);
     this.maxRetriesPerCredential = Number(options.maxRetriesPerCredential ?? 1);
@@ -117,6 +120,13 @@ class GeminiCredentialPool {
   async request(model, systemPrompt, userPrompt, options = {}) {
     const deadlineMs = options.deadlineMs ?? null;
     remainingDeadlineMs(deadlineMs);
+    const modelDeadlineMs = Date.now() + this.modelBudgetMs;
+    const checkModelBudget = () => {
+      const outerRemaining = remainingDeadlineMs(deadlineMs);
+      const modelRemaining = modelDeadlineMs - Date.now();
+      if (modelRemaining <= 0) throw Object.assign(new Error(`Gemini model ${model} exceeded its per-model time budget.`), { code: 'MODEL_TIME_BUDGET_EXCEEDED', fallbackEligible: true });
+      return Math.min(modelRemaining, outerRemaining);
+    };
     if (this.modelUnavailable.has(model)) {
       throw Object.assign(new Error(`Gemini model ${model} is marked unavailable for this run.`), { code: 'MODEL_UNAVAILABLE', fallbackEligible: true });
     }
@@ -137,12 +147,12 @@ class GeminiCredentialPool {
     let transientCredentialFailures = 0;
 
     for (const { credential, index } of candidates) {
-      remainingDeadlineMs(deadlineMs);
+      checkModelBudget();
       this.cursor = (index + 1) % this.credentials.length;
       let credentialTransientFailure = false;
 
       for (let attempt = 0; attempt <= this.maxRetriesPerCredential; attempt++) {
-        const requestTimeoutMs = boundedRequestTimeoutMs(this.timeoutMs, deadlineMs);
+        const requestTimeoutMs = boundedRequestTimeoutMs(this.timeoutMs, Date.now() + checkModelBudget());
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
         let res;
         try {
@@ -158,14 +168,14 @@ class GeminiCredentialPool {
               generationConfig,
             }),
           }, requestTimeoutMs);
-          remainingDeadlineMs(deadlineMs);
+          checkModelBudget();
         } catch (err) {
-          if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
-          remainingDeadlineMs(deadlineMs);
+          if (err.code === 'REVIEW_DEADLINE_EXCEEDED' || err.code === 'MODEL_TIME_BUDGET_EXCEEDED') throw err;
+          checkModelBudget();
           errors.push(`${credential.id}: network/timeout`);
           this.telemetry.push({ provider: 'gemini', credentialId: credential.id, model, event: 'network-error', attempt: attempt + 1 });
           if (attempt < this.maxRetriesPerCredential) {
-            await sleep(Math.min(this.backoffBaseMs * (2 ** attempt) + Math.floor(Math.random() * 250), remainingDeadlineMs(deadlineMs)));
+            await sleep(Math.min(this.backoffBaseMs * (2 ** attempt) + Math.floor(Math.random() * 250), checkModelBudget()));
             continue;
           }
           this.markCooldown(credential.id, model, this.transientCooldownMs, 'network');
