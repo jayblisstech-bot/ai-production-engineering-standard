@@ -4,8 +4,11 @@ on:
   pull_request:
     branches:
       - main
+      - fix/oversized-ai-review-diff-hunks
     paths:
       - "scripts/call-review-gateway.js"
+      - "scripts/review-chunk-executor.js"
+      - "tests/review-chunk-executor.test.js"
       - "tests/oversized-hunk-chunking.test.js"
       - ".github/workflows/ai-diff-chunking-tests.yml"
   workflow_dispatch:
