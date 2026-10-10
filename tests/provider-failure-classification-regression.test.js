@@ -160,3 +160,35 @@ for (const [provider, call, message] of [
     }finally{global.fetch=prior;}
   });
 }
+
+for (const [provider, call, message] of [
+  ['Anthropic input plus output allocation', callAnthropic, 'input length and max_tokens exceed context limit'],
+  ['OpenAI configured input budget', callOpenAI, 'Input tokens exceed the configured limit'],
+  ['OpenRouter wrapped Gemini input tokens', callOpenRouter, 'input token count exceeds the limit'],
+]) {
+  test(`${provider}: HTTP 400 input context-limit phrase triggers compaction rather than permanent candidate disable`, async () => {
+    const previous = global.fetch;
+    global.fetch = async () => errorResponse(400, {type: 'invalid_request_error', message});
+    try {
+      await assert.rejects(
+        () => call('model', 'system', 'user', 1000, 'test-key'),
+        err => err.code === 'CONTEXT_OVERFLOW' && err.fallbackEligible === false,
+      );
+    } finally { global.fetch = previous; }
+  });
+}
+for (const [provider, call] of [['OpenAI',callOpenAI],['Anthropic',callAnthropic],['OpenRouter',callOpenRouter]]) {
+  test(`${provider}: HTTP 400 output-token allocation error stays HTTP_400`, async () => {
+    const previous = global.fetch;
+    global.fetch = async () => errorResponse(400, {
+      type:'invalid_request_error',
+      message:'max_tokens 16384 exceeds the maximum output token limit for this model',
+    });
+    try {
+      await assert.rejects(
+        () => call('model', 'system', 'user', 1000, 'test-key'),
+        err => err.code === 'HTTP_400',
+      );
+    } finally { global.fetch=previous; }
+  });
+}
