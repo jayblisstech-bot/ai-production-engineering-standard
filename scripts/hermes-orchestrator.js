@@ -16,6 +16,7 @@
  */
 const { callOpenRouter, callOpenAI, callAnthropic } = require('./provider-clients');
 const { GeminiCredentialPool, parseGeminiCredentials } = require('./gemini-credential-pool');
+const { remainingDeadlineMs, boundedRequestTimeoutMs } = require('./review-deadline');
 
 const CAPABILITIES = ['medium', 'strong', 'advanced'];
 
@@ -88,7 +89,6 @@ class HermesOrchestrator {
       cooldown429Ms: config.review.routing.geminiPool.cooldown429Ms,
       transientCooldownMs: config.review.routing.geminiPool.transientCooldownMs,
       maxRetriesPerCredential: config.review.routing.geminiPool.maxRetriesPerCredential,
-      maxTransientCredentialsPerModel: config.review.routing.geminiPool.maxTransientCredentialsPerModel,
       backoffBaseMs: config.review.routing.geminiPool.backoffBaseMs,
     }) : null);
   }
@@ -124,35 +124,42 @@ class HermesOrchestrator {
     }
   }
 
-  async callCandidate(provider, model, systemPrompt, userPrompt, capability) {
-    const timeoutMs = Number(this.config.review.requestTimeoutMs || 90000);
+  async callCandidate(provider, model, systemPrompt, userPrompt, capability, deadlineMs = null) {
+    const timeoutMs = boundedRequestTimeoutMs(this.config.review.requestTimeoutMs || 90000, deadlineMs);
     if (provider === 'gemini') {
       if (!this.geminiPool) throw Object.assign(new Error('No Gemini credential pool is configured.'), { fallbackEligible: true });
       const thinkingLevel = this.config.review.routing.geminiThinkingLevel[capability];
-      return this.geminiPool.request(model, systemPrompt, userPrompt, { thinkingLevel });
+      return this.geminiPool.request(model, systemPrompt, userPrompt, deadlineMs === null ? { thinkingLevel } : { thinkingLevel, deadlineMs });
     }
     const client = this.clients[provider];
     if (!client) throw Object.assign(new Error(`No client implemented for provider ${provider}.`), { fallbackEligible: true });
-    return client(model, systemPrompt, userPrompt, timeoutMs, undefined);
+    return client(model, systemPrompt, userPrompt, timeoutMs, undefined, deadlineMs);
   }
 
-  async review({ modelTier, systemPrompt, userPrompt, validate }) {
+  async review({ modelTier, systemPrompt, userPrompt, validate, deadlineMs = null }) {
     if (typeof validate !== 'function') throw new Error('Hermes requires a response validator so malformed model output cannot be accepted.');
     const errors = [];
+    remainingDeadlineMs(deadlineMs);
     for (const capability of escalationCapabilities(modelTier)) {
+      remainingDeadlineMs(deadlineMs);
       const providers = providerOrderForCapability(this.config, capability, this.env);
       for (const provider of providers) {
+        remainingDeadlineMs(deadlineMs);
         const models = modelCandidates(this.config, provider, capability);
         for (const model of models) {
+          remainingDeadlineMs(deadlineMs);
           if (provider !== 'gemini' && !this.candidateHealthy(provider, model)) {
             this.trace.push({ capability, provider, model, event: 'candidate-skipped-unhealthy' });
             continue;
           }
           let response;
           try {
-            response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability);
+            response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability, deadlineMs);
+            // Response may complete on the deadline boundary. A valid result is saved
+            // by the gateway before it reports the global cutoff.
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'response' });
           } catch (err) {
+            if (err.code === 'CONTEXT_OVERFLOW' || err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
             errors.push(`${provider}:${model}: ${err.message}`);
             this.trace.push({ capability, provider, model, event: 'provider-failure', code: err.code || null });
             if (provider !== 'gemini') this.recordProviderFailure(provider, model, err);
@@ -165,12 +172,14 @@ class HermesOrchestrator {
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'validated' });
             return { ...response, capability, validated, routingTrace: this.publicTrace() };
           } catch (err) {
+            if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
             errors.push(`${provider}:${model}: invalid/insufficient response: ${err.message}`);
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'validation-failure' });
           }
         }
       }
     }
+    remainingDeadlineMs(deadlineMs);
     throw new Error(`Hermes exhausted all approved provider/model routes at or above required capability. ${errors.join(' | ')}`);
   }
 

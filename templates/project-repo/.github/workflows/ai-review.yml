@@ -9,6 +9,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: read
     uses: jayblisstech-bot/ai-production-engineering-standard/.github/workflows/ai-review.yml@4f02a1ed79fb972998623a62c05a254e0e450687
     with:
       pipeline_ref: 4f02a1ed79fb972998623a62c05a254e0e450687

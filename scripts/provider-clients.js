@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(url, { ...options, signal: controller.signal }); }
-  finally { clearTimeout(timer); }
+const { fetchBufferedResponse } = require('./http-bounded');
+const { remainingDeadlineMs } = require('./review-deadline');
+async function fetchWithTimeout(url, options, timeoutMs, deadlineMs = null) {
+  return fetchBufferedResponse(url, options, timeoutMs, deadlineMs);
 }
 
 function providerError(message, opts = {}) { return Object.assign(new Error(message), opts); }
@@ -24,7 +23,14 @@ function classifyHttpFallback(status) {
   return status === 402 || status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
-async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY) {
+function isContextOverflowMessage(body) {
+  const source = String(body || '');
+  // Output allocation/max_tokens failures are not input context-window overflow.
+  const explicitOverflow = /context_length_exceeded|maximum context length|prompt is too long|context (?:length|window) exceeded|input (?:is )?too long|input token count exceeds (?:the )?model(?:'s)? (?:context )?limit/i;
+  if (/max(?:_completion|_output)?_tokens|output tokens/i.test(source) && !explicitOverflow.test(source)) return false;
+  return explicitOverflow.test(source);
+}
+async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('OPENROUTER_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
   try {
@@ -32,8 +38,9 @@ async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0 }),
-    }, timeoutMs);
+    }, timeoutMs, deadlineMs);
   } catch (err) {
+    if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`OpenRouter network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
   }
   if (res.ok) {
@@ -43,6 +50,7 @@ async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = 
     return { text, provider: 'openrouter', model };
   }
   const body = await res.text();
+  if (res.status === 400 && isContextOverflowMessage(body)) throw providerError(`OpenRouter context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`OpenRouter HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
@@ -57,7 +65,7 @@ function extractOpenAIText(data) {
   return parts.join('');
 }
 
-async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENAI_API_KEY) {
+async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENAI_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('OPENAI_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
   try {
@@ -71,8 +79,9 @@ async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = proc
           { role: 'user', content: [{ type: 'input_text', text: userPrompt }] },
         ],
       }),
-    }, timeoutMs);
+    }, timeoutMs, deadlineMs);
   } catch (err) {
+    if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`OpenAI network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
   }
   if (res.ok) {
@@ -82,6 +91,7 @@ async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = proc
     return { text, provider: 'openai', model };
   }
   const body = await res.text();
+  if (res.status === 400 && isContextOverflowMessage(body)) throw providerError(`OpenAI context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`OpenAI HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 
@@ -89,7 +99,7 @@ function extractAnthropicText(data) {
   return (data?.content || []).filter((x) => x?.type === 'text' && typeof x.text === 'string').map((x) => x.text).join('');
 }
 
-async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = process.env.ANTHROPIC_API_KEY) {
+async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = process.env.ANTHROPIC_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('ANTHROPIC_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
   try {
@@ -106,8 +116,9 @@ async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = p
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       }),
-    }, timeoutMs);
+    }, timeoutMs, deadlineMs);
   } catch (err) {
+    if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`Anthropic network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
   }
   if (res.ok) {
@@ -117,6 +128,7 @@ async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = p
     return { text, provider: 'anthropic', model };
   }
   const body = await res.text();
+  if (res.status === 400 && isContextOverflowMessage(body)) throw providerError(`Anthropic context overflow: ${body.slice(0, 500)}`, { code: 'CONTEXT_OVERFLOW', fallbackEligible: false });
   throw providerError(`Anthropic HTTP ${res.status}: ${body.slice(0, 500)}`, { code: `HTTP_${res.status}`, fallbackEligible: classifyHttpFallback(res.status) || res.status === 401 || res.status === 403 || res.status === 404, retryAfterMs: retryAfterMs(res) });
 }
 

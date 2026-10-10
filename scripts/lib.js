@@ -49,6 +49,8 @@ const DEFAULT_CONFIG = {
   review: {
     allowedExternalProviders: [],
     maxChunkChars: 45000,
+    maxChunkTokens: 9000,
+    charsPerToken: 4,
     maxChunks: 12,
     requestTimeoutMs: 90000,
     routing: {
@@ -90,7 +92,6 @@ const DEFAULT_CONFIG = {
         cooldown429Ms: 60000,
         transientCooldownMs: 15000,
         maxRetriesPerCredential: 1,
-        maxTransientCredentialsPerModel: 2,
         backoffBaseMs: 500
       }
     }
@@ -237,12 +238,13 @@ function validateConfigSemantics(config) {
     ['context.maxContextChars', config.context.maxContextChars, 1000, 250000],
     ['context.maxPerFileChars', config.context.maxPerFileChars, 500, 100000],
     ['review.maxChunkChars', config.review.maxChunkChars, 5000, 120000],
+    ['review.maxChunkTokens', config.review.maxChunkTokens, 100, 30000],
+    ['review.charsPerToken', config.review.charsPerToken, 1, 10],
     ['review.maxChunks', config.review.maxChunks, 1, 50],
     ['review.requestTimeoutMs', config.review.requestTimeoutMs, 5000, 300000],
     ['review.routing.geminiPool.cooldown429Ms', config.review.routing.geminiPool.cooldown429Ms, 1000, 3600000],
     ['review.routing.geminiPool.transientCooldownMs', config.review.routing.geminiPool.transientCooldownMs, 100, 300000],
     ['review.routing.geminiPool.maxRetriesPerCredential', config.review.routing.geminiPool.maxRetriesPerCredential, 0, 5],
-    ['review.routing.geminiPool.maxTransientCredentialsPerModel', config.review.routing.geminiPool.maxTransientCredentialsPerModel, 1, 20],
     ['review.routing.geminiPool.backoffBaseMs', config.review.routing.geminiPool.backoffBaseMs, 50, 30000],
     ['security.assurance.maxFiles', config.security.assurance.maxFiles, 1, 20000],
     ['security.assurance.maxFileBytes', config.security.assurance.maxFileBytes, 1024, 10485760],
