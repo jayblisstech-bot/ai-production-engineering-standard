@@ -59,6 +59,13 @@ jobs:
       model_tier: ${{ steps.classify.outputs.model_tier }}
       human_approval_required: ${{ steps.classify.outputs.human_approval_required }}
     steps:
+      - name: Establish bounded review wall-clock budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 16 minutes from the first AI-review step; the job hard limit is 20.
+          # The gateway reserves another 90 seconds of this budget for publication.
+          echo "APES_REVIEW_DEADLINE_MS=$(( ($(date +%s) + 960) * 1000 ))" >> "$GITHUB_ENV"
       - name: Checkout project PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
