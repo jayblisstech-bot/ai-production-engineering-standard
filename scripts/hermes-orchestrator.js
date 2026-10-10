@@ -129,7 +129,7 @@ class HermesOrchestrator {
     if (provider === 'gemini') {
       if (!this.geminiPool) throw Object.assign(new Error('No Gemini credential pool is configured.'), { fallbackEligible: true });
       const thinkingLevel = this.config.review.routing.geminiThinkingLevel[capability];
-      return this.geminiPool.request(model, systemPrompt, userPrompt, { thinkingLevel, deadlineMs });
+      return this.geminiPool.request(model, systemPrompt, userPrompt, deadlineMs === null ? { thinkingLevel } : { thinkingLevel, deadlineMs });
     }
     const client = this.clients[provider];
     if (!client) throw Object.assign(new Error(`No client implemented for provider ${provider}.`), { fallbackEligible: true });
