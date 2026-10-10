@@ -60,3 +60,26 @@ test('Gemini checks one shared deadline before exhausting independent credential
     assert.equal(calls,3, 'model fallback and remaining project attempts must stop at deadline');
   } finally { global.fetch = oldFetch; Date.now = oldNow; }
 });
+
+test('Gemini per-model budget forces model fallback without waiting through every slow project', async () => {
+  const oldFetch=global.fetch, oldNow=Date.now;
+  let now=300000, firstCalls=0, fallbackCalls=0;
+  Date.now=()=>now;
+  global.fetch=async (url) => {
+    if (String(url).includes('model-primary')) {
+      firstCalls++;
+      now+=70;
+      return new Response(JSON.stringify({error:{status:'RESOURCE_EXHAUSTED',message:'quota'}}),{status:429});
+    }
+    fallbackCalls++;
+    return new Response(JSON.stringify({candidates:[{content:{parts:[{text:'{"findings":[]}'}]}}]}),{status:200});
+  };
+  try {
+    const pool=new GeminiCredentialPool(Array.from({length:9},(_,i)=>({id:'p'+i,key:'key-'+i})),
+      {modelBudgetMs:100, timeoutMs:90000, maxRetriesPerCredential:0,cooldown429Ms:1000});
+    const result=await pool.callModels(['model-primary','model-next'],'s','u');
+    assert.equal(result.model,'model-next');
+    assert.equal(firstCalls,2);
+    assert.equal(fallbackCalls,1);
+  } finally { Date.now=oldNow;global.fetch=oldFetch; }
+});
