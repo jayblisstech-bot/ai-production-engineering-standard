@@ -11,7 +11,7 @@ const {
 const { detectSecretsInText, scanDiff, redactSecretsInText } = require('./scan-secrets');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
 const { ReviewCheckpoint, stableTaskId } = require('./review-checkpoint');
-const { DEFAULT_REVIEW_BUDGET_MS, PUBLICATION_RESERVE_MS, remainingDeadlineMs } = require('./review-deadline');
+const { DEFAULT_REVIEW_BUDGET_MS, PUBLICATION_RESERVE_MS, remainingDeadlineMs, boundedRequestTimeoutMs, deadlineExceeded } = require('./review-deadline');
 const ALLOWED_SEVERITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 
 const REVIEW_SYSTEM_PROMPT = `You are an independent production pull-request reviewer.
@@ -248,18 +248,36 @@ function findingMarker(headSha, finding) {
   return '<!-- APES-FINDING:' + findingFingerprint(headSha, finding) + ' -->';
 }
 
-async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha) {
+// Publication also consumes the shared deadline; GitHub calls must not hang past it.
+async function fetchGitHubBounded(url, options, deadlineMs = null) {
+  if (deadlineMs === null) return fetch(url, options);
+  const timeoutMs = boundedRequestTimeoutMs(20000, deadlineMs);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    remainingDeadlineMs(deadlineMs);
+    return res;
+  } catch (err) {
+    if (controller.signal.aborted) throw deadlineExceeded();
+    throw err;
+  } finally { clearTimeout(timer); }
+}
+
+async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha, deadlineMs = null) {
   const markers = new Set();
   for (let page = 1; ; page++) {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100&page=${page}`, {
+    remainingDeadlineMs(deadlineMs);
+    const res = await fetchGitHubBounded(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100&page=${page}`, {
       headers: {
         Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-    });
+    }, deadlineMs);
     if (!res.ok) throw new Error(`Failed to inspect existing inline review comments: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
     const comments = await res.json();
+    remainingDeadlineMs(deadlineMs);
     if (!Array.isArray(comments)) throw new Error('GitHub returned an invalid inline-comment collection.');
     for (const comment of comments) {
       if (comment.commit_id === headSha && comment.user?.login === 'github-actions[bot]' && comment.user?.id === 41898282 && typeof comment.body === 'string') {
@@ -274,22 +292,22 @@ async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha) {
 
 const inFlightFindingPublications = new Map();
 
-async function postInlineComment(owner, repo, prNumber, headSha, finding, existingMarkers = null) {
+async function postInlineComment(owner, repo, prNumber, headSha, finding, existingMarkers = null, deadlineMs = null) {
   const key = [owner, repo, prNumber, headSha, findingFingerprint(headSha, finding)].join(':');
   const pending = inFlightFindingPublications.get(key);
   if (pending) {
     await pending;
     return false;
   }
-  const operation = publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers);
+  const operation = publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers, deadlineMs);
   inFlightFindingPublications.set(key, operation);
   try { return await operation; }
   finally { if (inFlightFindingPublications.get(key) === operation) inFlightFindingPublications.delete(key); }
 }
 
-async function publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers = null) {
+async function publishFindingOnce(owner, repo, prNumber, headSha, finding, existingMarkers = null, deadlineMs = null) {
   const marker = findingMarker(headSha, finding);
-  const markers = existingMarkers || await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
+  const markers = existingMarkers || await fetchExistingFindingMarkers(owner, repo, prNumber, headSha, deadlineMs);
   const fingerprint = findingFingerprint(headSha, finding);
   if (markers.has(fingerprint)) return false;
   // A cached marker snapshot may be stale after another worker published.
@@ -302,7 +320,8 @@ async function publishFindingOnce(owner, repo, prNumber, headSha, finding, exist
     }
   }
 
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
+  remainingDeadlineMs(deadlineMs);
+  const res = await fetchGitHubBounded(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -317,7 +336,7 @@ async function publishFindingOnce(owner, repo, prNumber, headSha, finding, exist
       line: finding.line,
       side: finding.side || 'RIGHT',
     }),
-  });
+  }, deadlineMs);
   if (!res.ok && res.status === 422) {
     // A prior publication may have succeeded even if the response was lost.
     // Reconcile with GitHub before treating the finding as unpublished.
@@ -327,6 +346,7 @@ async function publishFindingOnce(owner, repo, prNumber, headSha, finding, exist
       return false;
     }
   }
+  remainingDeadlineMs(deadlineMs);
   if (!res.ok) throw new Error(`Failed to post required inline review comment on ${finding.path}:${finding.line}: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
   markers.add(findingFingerprint(headSha, finding));
   return true;
@@ -463,11 +483,11 @@ async function main({ createHermes = (config) => new HermesOrchestrator({ config
   const [owner, repo] = String(process.env.GITHUB_REPOSITORY || '').split('/');
   if (!owner || !repo || !process.env.PR_NUMBER || !process.env.HEAD_SHA || !process.env.GITHUB_TOKEN) throw new Error('GitHub PR context/token is incomplete; required inline comments cannot be guaranteed.');
   remainingDeadlineMs(deadlineMs);
-  const existingMarkers = await fetchExistingFindingMarkers(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA);
+  const existingMarkers = await fetchExistingFindingMarkers(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, deadlineMs);
   remainingDeadlineMs(deadlineMs);
   for (const finding of findings) {
     remainingDeadlineMs(deadlineMs);
-    await postInlineComment(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, finding, existingMarkers);
+    await postInlineComment(owner, repo, process.env.PR_NUMBER, process.env.HEAD_SHA, finding, existingMarkers, deadlineMs);
   }
   remainingDeadlineMs(deadlineMs);
 
