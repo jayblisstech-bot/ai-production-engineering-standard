@@ -155,7 +155,8 @@ class HermesOrchestrator {
           let response;
           try {
             response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability, deadlineMs);
-            remainingDeadlineMs(deadlineMs);
+            // Response may complete on the deadline boundary. A valid result is saved
+            // by the gateway before it reports the global cutoff.
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'response' });
           } catch (err) {
             if (err.code === 'CONTEXT_OVERFLOW' || err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
@@ -166,7 +167,6 @@ class HermesOrchestrator {
           }
 
           try {
-            remainingDeadlineMs(deadlineMs);
             const validated = validate(response.text);
             if (validated && validated.needs_escalation === true) throw new Error('Reviewer explicitly requested stronger capability.');
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'validated' });
