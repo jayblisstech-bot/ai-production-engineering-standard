@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { main } = require('../scripts/call-review-gateway');
 
-test('gateway deadline preserves only committed chunks and refuses publication/success', async () => {
+test('gateway deadline commits a late validated chunk but refuses publication/success', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-deadline-'));
   const checkpointPath = path.join(dir,'checkpoint.json');
   const diffPath = path.join(dir,'diff.txt');
@@ -44,7 +44,7 @@ test('gateway deadline preserves only committed chunks and refuses publication/s
     assert.equal(reviews, 2);
     assert.equal(fetches,0);
     const cp=JSON.parse(fs.readFileSync(checkpointPath,'utf8'));
-    assert.deepEqual(Object.keys(cp.completedChunks), ['0']);
+    assert.deepEqual(Object.keys(cp.completedChunks).sort(), ['0', '1'], 'late validated result must be durable before deadline failure');
   } finally {
     Date.now = oldNow;
     global.fetch=oldFetch;
