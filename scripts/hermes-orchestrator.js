@@ -133,7 +133,7 @@ class HermesOrchestrator {
     }
     const client = this.clients[provider];
     if (!client) throw Object.assign(new Error(`No client implemented for provider ${provider}.`), { fallbackEligible: true });
-    return client(model, systemPrompt, userPrompt, timeoutMs, undefined);
+    return client(model, systemPrompt, userPrompt, timeoutMs, undefined, deadlineMs);
   }
 
   async review({ modelTier, systemPrompt, userPrompt, validate, deadlineMs = null }) {
