@@ -133,3 +133,30 @@ test('nine independent Gemini credential projects exhaust before lower model is 
     assert.equal(attempts[9].model, 'fallback');
   } finally { global.fetch = previous; }
 });
+
+test('Anthropic max_tokens invalid parameter is not input context overflow', async () => {
+  const prior = global.fetch;
+  global.fetch = async () => errorResponse(400, {
+    type:'invalid_request_error',
+    message:'max_tokens: 16384 exceeds the maximum output token limit for this model',
+  });
+  try {
+    await assert.rejects(() => callAnthropic('model','system','user',1000,'test-key'),
+      e => e.code === 'HTTP_400' && e.code !== 'CONTEXT_OVERFLOW');
+  } finally { global.fetch=prior; }
+});
+
+for (const [provider, call, message] of [
+  ['OpenAI',callOpenAI,'context_length_exceeded: maximum context length exceeded'],
+  ['Anthropic',callAnthropic,'prompt is too long for this model'],
+  ['OpenRouter',callOpenRouter,'maximum context length exceeded'],
+]) {
+  test(`${provider} explicit input context overflow stays distinct from output token limit`, async () => {
+    const prior=global.fetch;
+    global.fetch=async()=>errorResponse(400,{type:'invalid_request_error',message});
+    try {
+      await assert.rejects(() => call('model','system','user',1000,'test-key'),
+        e=>e.code==='CONTEXT_OVERFLOW' && e.fallbackEligible===false);
+    }finally{global.fetch=prior;}
+  });
+}
