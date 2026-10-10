@@ -11,7 +11,7 @@ async function fetchBufferedResponse(url, options, timeoutMs, deadlineMs = null)
     const res = await fetch(url, { ...options, signal: controller.signal });
     // Some test doubles implement only json(); real fetch Responses always implement text().
     const raw = typeof res.text === 'function' ? await res.text()
-      : JSON.stringify(await res.json());
+      : typeof res.json === 'function' ? JSON.stringify(await res.json()) : '';
     remainingDeadlineMs(deadlineMs);
     return {
       ok: res.ok, status: res.status, headers: res.headers,
