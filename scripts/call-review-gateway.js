@@ -11,7 +11,8 @@ const {
 const { detectSecretsInText, scanDiff, redactSecretsInText } = require('./scan-secrets');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
 const { ReviewCheckpoint, stableTaskId } = require('./review-checkpoint');
-const { DEFAULT_REVIEW_BUDGET_MS, PUBLICATION_RESERVE_MS, remainingDeadlineMs, boundedRequestTimeoutMs, deadlineExceeded } = require('./review-deadline');
+const { DEFAULT_REVIEW_BUDGET_MS, PUBLICATION_RESERVE_MS, remainingDeadlineMs } = require('./review-deadline');
+const { fetchBufferedResponse } = require('./http-bounded');
 const ALLOWED_SEVERITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 
 const REVIEW_SYSTEM_PROMPT = `You are an independent production pull-request reviewer.
@@ -250,18 +251,7 @@ function findingMarker(headSha, finding) {
 
 // Publication also consumes the shared deadline; GitHub calls must not hang past it.
 async function fetchGitHubBounded(url, options, deadlineMs = null) {
-  if (deadlineMs === null) return fetch(url, options);
-  const timeoutMs = boundedRequestTimeoutMs(20000, deadlineMs);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    remainingDeadlineMs(deadlineMs);
-    return res;
-  } catch (err) {
-    if (controller.signal.aborted) throw deadlineExceeded();
-    throw err;
-  } finally { clearTimeout(timer); }
+  return fetchBufferedResponse(url, options, 20000, deadlineMs);
 }
 
 async function fetchExistingFindingMarkers(owner, repo, prNumber, headSha, deadlineMs = null) {
