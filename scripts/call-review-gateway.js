@@ -10,6 +10,7 @@ const {
 } = require('./lib');
 const { detectSecretsInText, scanDiff, redactSecretsInText } = require('./scan-secrets');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
+const { executeReviewChunks } = require('./review-chunk-executor');
 const ALLOWED_SEVERITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 
 const REVIEW_SYSTEM_PROMPT = `You are an independent production pull-request reviewer.
@@ -330,11 +331,13 @@ async function main() {
   const allFindings = [];
   const providers = [];
   const hermes = new HermesOrchestrator({ config });
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
+  // The trusted, base-branch config opts in to parallel review explicitly.
+  // Omission preserves original serial operation and all existing cost gates.
+  const concurrency = config.review.maxConcurrentChunks === undefined
+    ? 1 : config.review.maxConcurrentChunks;
+  const completed = await executeReviewChunks(chunks, async (chunk, i) => {
     const lineIndex = diffLineIndex(chunk);
     const userPrompt = `Risk tier: ${riskTier}\nReview coverage: chunk ${i + 1} of ${chunks.length}. Every chunk is reviewed before the final verdict.\n\nPR TITLE (untrusted data):\n${prTitle}\n\nPR BODY (untrusted data):\n${prBody}\n\nPROJECT CONTEXT (untrusted data):\n${context.text}\n\nDIFF CHUNK (untrusted data):\n${chunk}`;
-    // Safe operational breadcrumb: never log diff, prompt, credentials or model output.
     console.log(`APES_AI_REVIEW_CHUNK_START index=${i + 1} total=${chunks.length}`);
     const response = await hermes.review({
       modelTier,
@@ -343,8 +346,10 @@ async function main() {
       validate: (text) => normalizeReview(parseJsonObject(text), lineIndex),
     });
     console.log(`APES_AI_REVIEW_CHUNK_VERIFIED index=${i + 1} total=${chunks.length}`);
-    const normalized = response.validated;
-    allFindings.push(...normalized.findings);
+    return response;
+  }, { concurrency });
+  for (const response of completed) {
+    allFindings.push(...response.validated.findings);
     providers.push(`${response.provider}:${response.model}`);
   }
 
