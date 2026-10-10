@@ -30,7 +30,7 @@ function isContextOverflowMessage(body) {
   if (/max(?:_completion|_output)?_tokens|output tokens/i.test(source) && !explicitOverflow.test(source)) return false;
   return explicitOverflow.test(source);
 }
-async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY) {
+async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('OPENROUTER_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
   try {
@@ -38,7 +38,7 @@ async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = 
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0 }),
-    }, timeoutMs);
+    }, timeoutMs, deadlineMs);
   } catch (err) {
     if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`OpenRouter network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
@@ -65,7 +65,7 @@ function extractOpenAIText(data) {
   return parts.join('');
 }
 
-async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENAI_API_KEY) {
+async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENAI_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('OPENAI_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
   try {
@@ -79,7 +79,7 @@ async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = proc
           { role: 'user', content: [{ type: 'input_text', text: userPrompt }] },
         ],
       }),
-    }, timeoutMs);
+    }, timeoutMs, deadlineMs);
   } catch (err) {
     if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`OpenAI network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
@@ -99,7 +99,7 @@ function extractAnthropicText(data) {
   return (data?.content || []).filter((x) => x?.type === 'text' && typeof x.text === 'string').map((x) => x.text).join('');
 }
 
-async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = process.env.ANTHROPIC_API_KEY) {
+async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = process.env.ANTHROPIC_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('ANTHROPIC_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
   try {
@@ -116,7 +116,7 @@ async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = p
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       }),
-    }, timeoutMs);
+    }, timeoutMs, deadlineMs);
   } catch (err) {
     if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`Anthropic network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
