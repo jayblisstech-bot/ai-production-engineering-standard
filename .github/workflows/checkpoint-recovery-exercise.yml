@@ -1,0 +1,82 @@
+name: APES Checkpoint Recovery Exercise
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/checkpoint-recovery-exercise.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  checkpoint-rerun:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.run_number == 1 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - name: Create first committed review chunk on initial attempt
+        if: ${{ github.run_attempt == '1' }}
+        run: |
+          node - <<'NODE'
+          const { ReviewCheckpoint } = require('./scripts/review-checkpoint');
+          const cp = new ReviewCheckpoint({
+            taskId: 'ci-checkpoint-exercise',
+            checkpointPath: process.env.RUNNER_TEMP + '/apes-fixture/review.json',
+            chunkCount: 2,
+            headSha: process.env.PR_HEAD,
+            reviewTarget: 'PR:fixture',
+            planHash: 'a'.repeat(64),
+          });
+          cp.commit(0, { findings: [], providers: ['fixture:first-attempt'] });
+          if (!cp.isComplete(0) || cp.isComplete(1)) throw new Error('Initial checkpoint incorrect');
+          NODE
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      - name: Restore checkpoint from first attempt
+        if: ${{ github.run_attempt != '1' }}
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: apes-fixture-${{ github.run_id }}
+          path: ${{ runner.temp }}/apes-fixture
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+      - name: Verify resume and finish the uncommitted chunk
+        if: ${{ github.run_attempt != '1' }}
+        env:
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node - <<'NODE'
+          const { ReviewCheckpoint } = require('./scripts/review-checkpoint');
+          const cp = new ReviewCheckpoint({
+            taskId: 'ci-checkpoint-exercise',
+            checkpointPath: process.env.RUNNER_TEMP + '/apes-fixture/review.json',
+            chunkCount: 2,
+            headSha: process.env.PR_HEAD,
+            reviewTarget: 'PR:fixture',
+            planHash: 'a'.repeat(64),
+          }).load();
+          if (!cp.restored || !cp.isComplete(0) || cp.isComplete(1)) throw new Error('Checkpoint failed to restore exactly one chunk');
+          const firstTimestamp = cp.completed(0).committedAt;
+          cp.commit(1, { findings: [], providers: ['fixture:second-attempt'] });
+          if (!cp.isFullyComplete() || cp.completed(0).committedAt !== firstTimestamp) throw new Error('Replay or resume corruption');
+          console.log('APES_FIXTURE_RECOVERY_PASS: restored chunk zero; committed chunk one only');
+          NODE
+      - name: Save checkpoint artifact for next run attempt
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apes-fixture-${{ github.run_id }}
+          path: ${{ runner.temp }}/apes-fixture/review.json
+          if-no-files-found: error
+          retention-days: 2
+          overwrite: true
+      - name: Simulate cancellation after checkpoint upload on first attempt
+        if: ${{ github.run_attempt == '1' }}
+        run: |
+          echo 'Expected first-attempt failure: retry failed job to validate artifact restoration'
+          exit 1

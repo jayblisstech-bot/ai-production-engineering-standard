@@ -5,8 +5,7 @@ on:
     inputs:
       pipeline_ref:
         description: Reviewed APES release commit used to fetch central scripts
-        required: false
-        default: 4f02a1ed79fb972998623a62c05a254e0e450687
+        required: true
         type: string
       config_path:
         description: Project-local APES JSON configuration path
@@ -41,11 +40,11 @@ jobs:
           PIPELINE_REF: ${{ inputs.pipeline_ref }}
         run: |
           set -euo pipefail
-          if [[ "$PIPELINE_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ "$PIPELINE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
-            echo "Approved immutable-style APES ref: $PIPELINE_REF"
+          if [[ "$PIPELINE_REF" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Approved immutable APES commit: $PIPELINE_REF"
           else
             echo "Refusing mutable/ambiguous APES pipeline_ref: $PIPELINE_REF" >&2
-            echo "Use a reviewed 40-character commit SHA for production callers; exact semantic-version release tags remain accepted for controlled upgrade workflows." >&2
+            echo "Use a reviewed 40-character commit SHA. Branches and semantic-version tags can be retargeted." >&2
             exit 1
           fi
 
@@ -202,6 +201,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: read
     needs: [risk-classify, deterministic-checks, security-scan]
     if: ${{ success() && needs.risk-classify.outputs.model_tier != 'skip' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     outputs:
@@ -210,7 +210,16 @@ jobs:
       p1_count: ${{ steps.review.outputs.p1_count }}
       p2_count: ${{ steps.review.outputs.p2_count }}
       reviewed_chunks: ${{ steps.review.outputs.reviewed_chunks }}
+      required_chunks: ${{ steps.review.outputs.required_chunks }}
+      checkpoint_complete: ${{ steps.review.outputs.checkpoint_complete }}
     steps:
+      - name: Establish bounded review wall-clock budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 16 minutes from the first AI-review step; the job hard limit is 20.
+          # The gateway reserves another 90 seconds of this budget for publication.
+          echo "APES_REVIEW_DEADLINE_MS=$(( ($(date +%s) + 960) * 1000 ))" >> "$GITHUB_ENV"
       - name: Checkout project PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -240,6 +249,72 @@ jobs:
           cd project
           git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
           git diff --no-ext-diff --unified=80 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
+      - name: Prepare durable APES checkpoint directory
+        run: mkdir -p "$RUNNER_TEMP/apes-checkpoint"
+
+      - name: Locate checkpoint for matching workflow, PR and head
+        id: previous-checkpoint-run
+        if: ${{ github.event.pull_request.number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api() {
+            curl --fail --silent --show-error --location -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2026-03-10' "$1"
+          }
+          artifact_name="apes-review-checkpoint-${PR_NUMBER}-${HEAD_SHA}"
+          has_artifact() {
+            local artifact_response
+            artifact_response="$(api "https://api.github.com/repos/$REPOSITORY/actions/runs/$1/artifacts?per_page=100")"
+            jq -e '.artifacts | type == "array"' <<< "$artifact_response" >/dev/null ||
+              { echo "Malformed GitHub artifact response" >&2; exit 1; }
+            jq -e --arg name "$artifact_name" 'any(.artifacts[]; .name == $name and .expired == false)' <<< "$artifact_response" >/dev/null
+          }
+          current="$(api "https://api.github.com/repos/$REPOSITORY/actions/runs/$CURRENT_RUN_ID")"
+          workflow_id="$(jq -er '.workflow_id | numbers' <<< "$current")"
+          previous=''
+          if [[ "$RUN_ATTEMPT" -gt 1 ]] && has_artifact "$CURRENT_RUN_ID"; then
+            previous="$CURRENT_RUN_ID"
+          else
+            response="$(api "https://api.github.com/repos/$REPOSITORY/actions/workflows/$workflow_id/runs?event=pull_request&head_sha=$HEAD_SHA&per_page=100")"
+            # Capture jq exit status: process substitution would silently hide failures.
+            candidates="$(jq -er --arg current "$CURRENT_RUN_ID" --argjson pr "$PR_NUMBER" --arg head "$HEAD_SHA" '
+              if (.workflow_runs | type) != "array" then error("Invalid workflow runs response") else
+                [.workflow_runs[]
+                 | select((.id | tostring) != $current)
+                 | select(.head_sha == $head)
+                 | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out")
+                 | select(any(.pull_requests[]?; .number == $pr))
+                 | .id] | if length == 0 then "" else join("\n") end
+              end' <<< "$response")"
+            while IFS= read -r candidate; do
+              [[ -z "$candidate" ]] && continue
+              if has_artifact "$candidate"; then previous="$candidate"; break; fi
+            done <<< "$candidates"
+          fi
+          echo "run_id=$previous" >> "$GITHUB_OUTPUT"
+          if [[ -n "$previous" ]]; then
+            echo "Checkpoint artifact selected from run $previous for PR $PR_NUMBER at $HEAD_SHA"
+          else
+            echo 'No matching non-expired checkpoint artifact; running from the beginning.'
+          fi
+
+      - name: Restore verified checkpoint artifact
+        if: ${{ steps.previous-checkpoint-run.outputs.run_id != '' }}
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/apes-checkpoint
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.previous-checkpoint-run.outputs.run_id }}
       - name: Run bounded, fail-closed AI review
         id: review
         env:
@@ -260,7 +335,17 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           DIFF_TEXT_PATH: /tmp/pr.diff
           CHANGED_FILES_FILE: /tmp/changed_files.txt
+          APES_CHECKPOINT_PATH: ${{ runner.temp }}/apes-checkpoint/review.json
         run: node pipeline/scripts/call-review-gateway.js
+      - name: Persist APES review checkpoint
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apes-review-checkpoint-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/apes-checkpoint/review.json
+          if-no-files-found: ignore
+          retention-days: 7
+          overwrite: true
 
   quality-gate:
     runs-on: ubuntu-latest
@@ -298,5 +383,8 @@ jobs:
           VERDICT: ${{ needs.ai-review.outputs.verdict }}
           P0_COUNT: ${{ needs.ai-review.outputs.p0_count }}
           P1_COUNT: ${{ needs.ai-review.outputs.p1_count }}
+          REVIEWED_CHUNKS: ${{ needs.ai-review.outputs.reviewed_chunks }}
+          REQUIRED_CHUNKS: ${{ needs.ai-review.outputs.required_chunks }}
+          CHECKPOINT_COMPLETE: ${{ needs.ai-review.outputs.checkpoint_complete }}
           RESTRICTED_PR: ${{ github.event.pull_request.head.repo.full_name != github.repository || github.actor == 'dependabot[bot]' }}
         run: node pipeline/scripts/enforce-gate.js
