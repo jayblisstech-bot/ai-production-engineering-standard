@@ -45,6 +45,14 @@ test('gateway deadline commits a late validated chunk but refuses publication/su
     assert.equal(fetches,0);
     const cp=JSON.parse(fs.readFileSync(checkpointPath,'utf8'));
     assert.deepEqual(Object.keys(cp.completedChunks).sort(), ['0', '1'], 'late validated result must be durable before deadline failure');
+    // The provider window is elapsed but publication has 89 seconds remaining.
+    // A fully complete resumed plan must need no provider call.
+    global.fetch = async () => ({ok:true, json: async () => []});
+    await main({createHermes: () => ({
+      async review() { throw new Error('must not replay fully completed checkpoint'); },
+      publicTrace() { return []; },
+    })});
+    assert.equal(reviews, 2);
   } finally {
     Date.now = oldNow;
     global.fetch=oldFetch;
