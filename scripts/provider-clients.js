@@ -24,11 +24,31 @@ function classifyHttpFallback(status) {
 }
 
 function isContextOverflowMessage(body) {
-  const source = String(body || '');
-  // Output allocation/max_tokens failures are not input context-window overflow.
-  const explicitOverflow = /context_length_exceeded|maximum context length|prompt is too long|context (?:length|window) exceeded|input (?:is )?too long|input token count exceeds (?:the )?model(?:'s)? (?:context )?limit/i;
-  if (/max(?:_completion|_output)?_tokens|output tokens/i.test(source) && !explicitOverflow.test(source)) return false;
-  return explicitOverflow.test(source);
+  let message = String(body || '');
+  try {
+    const parsed = JSON.parse(message);
+    const error = parsed?.error || parsed;
+    const code = String(error?.code || error?.status || '');
+    if (/^(?:context_length_exceeded|context_window_exceeded|prompt_too_long)$/i.test(code)) return true;
+    if (typeof error?.message === 'string') message = error.message;
+  } catch (_) { /* Text-only provider response. */ }
+
+  // An output-token *parameter* error is not an input context overflow.
+  // Require clear input/prompt/context evidence rather than generic "token limit".
+  const patterns = [
+    /context_length_exceeded|maximum context length|prompt is too long/i,
+    /context[ _-]?(?:length|window|size)[^.!?]{0,80}(?:exceed(?:s|ed)?|too (?:long|large))/i,
+    /(?:input|prompt)[ _-]?(?:token(?:s| count)?|length)?[^.!?]{0,100}exceed(?:s|ed)?[^.!?]{0,100}(?:context|(?:configured|model|token) limit)/i,
+    /(?:input|prompt) tokens? exceed(?:s|ed)? the configured limit/i,
+    /input token count exceeds?/i,
+    /input length and max_tokens exceed(?:s|ed)? (?:the )?context limit/i,
+  ];
+  const overflow = patterns.some((re) => re.test(message));
+  if (!overflow) return false;
+  // A lone max_tokens/output limit complaint must not be promoted to overflow.
+  if (/max(?:_completion|_output)?_tokens|output tokens/i.test(message) &&
+      !/(?:input|prompt|context|context_length_exceeded)/i.test(message)) return false;
+  return true;
 }
 async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY, deadlineMs = null) {
   if (!key) throw providerError('OPENROUTER_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
