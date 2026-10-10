@@ -10,8 +10,13 @@ async function fetchBufferedResponse(url, options, timeoutMs, deadlineMs = null)
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     // Some test doubles implement only json(); real fetch Responses always implement text().
-    const raw = typeof res.text === 'function' ? await res.text()
+    let raw = typeof res.text === 'function' ? await res.text()
       : typeof res.json === 'function' ? JSON.stringify(await res.json()) : '';
+    // Backward-compatible test doubles sometimes expose text() as a blank stub
+    // alongside a meaningful json(); native Response bodies cannot be read twice.
+    if (!raw && res.ok && typeof res.json === 'function' && !(res instanceof Response)) {
+      raw = JSON.stringify(await res.json());
+    }
     remainingDeadlineMs(deadlineMs);
     return {
       ok: res.ok, status: res.status, headers: res.headers,
