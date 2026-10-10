@@ -25,6 +25,15 @@ This document describes the implementation on `feat/checkpointed-provider-failov
 - The project-repository workflow template explicitly grants `actions: read` together with `contents: read` and `pull-requests: write`. The called workflow cannot elevate permissions beyond its caller; checkpoint artifact discovery requires `actions: read`.
 - The shipped caller template deliberately retains its historical reviewed runtime SHA until a new APES release is approved. Updating to the new checkpointed runtime requires intentionally pinning the called workflow and `pipeline_ref` to the approved exact commit, verifying permissions and running integration tests; this PR does not silently repin downstream applications.
 
+## Review execution deadlines
+
+- The AI-review job has a 20-minute GitHub Actions hard timeout. Its first step establishes an absolute 16-minute deadline, leaving four minutes of job-level buffer for termination and artifact handling. Standalone gateway calls default to a 15-minute budget if no absolute workflow deadline is provided.
+- The gateway reserves the last 90 seconds of that review deadline for publication and final output; any unfinished model call or uncommitted chunk fails closed when its earlier provider deadline is reached.
+- Hermes forwards one shared absolute deadline across every provider, capability and model; a fallback attempt does not restart the clock. Each network request is limited to the smaller of its configured timeout and the remaining deadline.
+- Gemini independently limits attempts on any single model to two minutes across all credentials, then permits model fallback if the **global** deadline still allows it. An expired global deadline always stops the entire review, regardless of available credentials.
+- Successfully persisted chunks survive deadline failure. Any unfinished chunk is not committed or published as a successful review. The artifact upload remains a best-effort `always()` step and cannot be guaranteed after forcible job cancellation.
+- These deadlines reduce timeout risk but do not prove live Gemini/provider behavior or that a blocked GitHub API endpoint always completes before the Actions hard timeout.
+
 ## GitHub Actions artifact recovery
 
 - The workflow associates a checkpoint with the same workflow identity, PR, head SHA and named non-expired artifact; same-run reruns can consider an artifact from an earlier attempt.
@@ -46,7 +55,7 @@ This document describes the implementation on `feat/checkpointed-provider-failov
 2. Broader end-to-end failure-injection and meaningful mutation testing across the primary orchestration path.
 3. Independently review publication races, comment fingerprint stability, and provider classification edge cases. PR-scoped GitHub Actions concurrency serializes the official workflow, but third-party writers bypassing the same concurrency group are not covered.
 4. Check the reusable workflow's default `pipeline_ref` and all callers: the historical default may reference a runtime that predates checkpoints. Do not silently switch downstream apps to an unreviewed ref.
-5. Confirm supply-chain scan, prompt-injection resilience, secret redaction, and any applicable global execution deadline.
+5. Confirm supply-chain scan, prompt-injection resilience, secret redaction, and real-workflow deadline behavior under provider/network stalls.
 6. Obtain an independent reviewer verdict on the final commit and explicit human merge authorization.
 
 **Current release policy:** draft PR, no merge, no production deployment, no downstream Numerra/SMMTAI changes.
