@@ -15,10 +15,15 @@ This document describes the implementation on `feat/checkpointed-provider-failov
 
 - Deterministic diff chunks respect file/hunk boundaries and both character and estimated-token budgets. An indivisible oversized hunk fails explicitly rather than silently truncating the diff.
 - The checkpoint identity includes the task, target/head and an ordered hash of chunks, review prompt, contextual evidence and review metadata. A changed contract is not considered the same completed task.
-- Each valid chunk result is normalized, persisted to a temporary file and atomically renamed **before** the in-memory completion state changes. This protects against ordinary write/rename failure; no stronger durability guarantee (such as power-loss-safe `fsync`) is claimed.
+- Each valid chunk result is normalized, persisted to a temporary file and atomically renamed **before** the in-memory completion state changes. The temporary file is synchronized with `fsync` before the atomic rename, and directory synchronization is attempted on POSIX systems. These reduce data-loss risk, but do not guarantee durability across all hardware, filesystems, power failures or runner termination.
 - Restored findings are validated against the current diff line index before being reused. Corrupt, schema-invalid or identity-mismatched checkpoints are quarantined and review starts again at chunk zero. Such recovery must be logged and is not reported as a successful resume.
 - Checkpoints contain normalized findings and opaque provider route identifiers, not API keys. A chunk is complete only when its checkpoint commit succeeds. Failed or uncommitted chunks may be retried; valid completed chunks are skipped.
 - Context compaction preserves as much validated project context as the limit allows. It is **not** a guarantee that every document section remains intact if a single section exceeds the budget.
+
+## Caller workflow permissions and safe upgrades
+
+- The project-repository workflow template explicitly grants `actions: read` together with `contents: read` and `pull-requests: write`. The called workflow cannot elevate permissions beyond its caller; checkpoint artifact discovery requires `actions: read`.
+- The shipped caller template deliberately retains its historical reviewed runtime SHA until a new APES release is approved. Updating to the new checkpointed runtime requires intentionally pinning the called workflow and `pipeline_ref` to the approved exact commit, verifying permissions and running integration tests; this PR does not silently repin downstream applications.
 
 ## GitHub Actions artifact recovery
 
