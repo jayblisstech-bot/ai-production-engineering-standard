@@ -114,3 +114,17 @@ test('small ordinary diffs remain unchanged', () => {
     + '@@ -1 +1 @@\n-old\n+new\n';
   assert.deepEqual(chunkDiff(diff, 850, 12), [diff]);
 });
+
+test('AI review reduces unchanged context while deterministic scanners retain deep context', () => {
+  const fs = require('node:fs');
+  const workflow = fs.readFileSync(require('node:path').join(__dirname, '../.github/workflows/ai-review.yml'), 'utf8');
+  const reviewMarker = '      - name: Produce complete changed-line diff with bounded AI context';
+  assert.ok(workflow.includes(reviewMarker));
+  const before = workflow.slice(0, workflow.indexOf(reviewMarker));
+  const after = workflow.slice(workflow.indexOf(reviewMarker));
+  assert.equal((before.match(/--unified=80/g) || []).length, 2,
+    'secret scanning and deterministic gate must keep deep context');
+  assert.ok(after.includes('git diff --no-ext-diff --unified=8'),
+    'the AI reviewer must still receive a complete changed-line unified diff');
+  assert.equal((after.match(/--unified=80/g) || []).length, 0);
+});
