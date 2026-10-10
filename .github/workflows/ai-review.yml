@@ -239,7 +239,7 @@ jobs:
         run: |
           cd project
           git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
-          git diff --no-ext-diff --unified=8 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
+          git diff --no-ext-diff --unified=3 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
       - name: Run bounded, fail-closed AI review
         id: review
         env:
