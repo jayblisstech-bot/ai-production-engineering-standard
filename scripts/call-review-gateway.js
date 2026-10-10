@@ -313,7 +313,7 @@ async function publishFindingOnce(owner, repo, prNumber, headSha, finding, exist
   // A cached marker snapshot may be stale after another worker published.
   // Reconcile immediately before posting to narrow the cross-run race window.
   if (existingMarkers) {
-    const refreshed = await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
+    const refreshed = await fetchExistingFindingMarkers(owner, repo, prNumber, headSha, deadlineMs);
     if (refreshed.has(fingerprint)) {
       markers.add(fingerprint);
       return false;
@@ -340,7 +340,7 @@ async function publishFindingOnce(owner, repo, prNumber, headSha, finding, exist
   if (!res.ok && res.status === 422) {
     // A prior publication may have succeeded even if the response was lost.
     // Reconcile with GitHub before treating the finding as unpublished.
-    const refreshed = await fetchExistingFindingMarkers(owner, repo, prNumber, headSha);
+    const refreshed = await fetchExistingFindingMarkers(owner, repo, prNumber, headSha, deadlineMs);
     if (refreshed.has(findingFingerprint(headSha, finding))) {
       markers.add(findingFingerprint(headSha, finding));
       return false;
