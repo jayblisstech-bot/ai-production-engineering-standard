@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(url, { ...options, signal: controller.signal }); }
-  finally { clearTimeout(timer); }
+const { fetchBufferedResponse } = require('./http-bounded');
+const { remainingDeadlineMs } = require('./review-deadline');
+async function fetchWithTimeout(url, options, timeoutMs, deadlineMs = null) {
+  return fetchBufferedResponse(url, options, timeoutMs, deadlineMs);
 }
 
 function providerError(message, opts = {}) { return Object.assign(new Error(message), opts); }
@@ -25,9 +24,12 @@ function classifyHttpFallback(status) {
 }
 
 function isContextOverflowMessage(body) {
-  return /(context(?:\s+window|\s+length)?|token(?:s|\s+limit)?|prompt|input).{0,80}(?:too\s+long|too\s+large|exceed|maximum|limit|overflow)|(?:maximum|limit|exceed|overflow).{0,80}(?:context|token|prompt|input)/i.test(String(body || ''));
+  const source = String(body || '');
+  // Output allocation/max_tokens failures are not input context-window overflow.
+  const explicitOverflow = /context_length_exceeded|maximum context length|prompt is too long|context (?:length|window) exceeded|input (?:is )?too long|input token count exceeds (?:the )?model(?:'s)? (?:context )?limit/i;
+  if (/max(?:_completion|_output)?_tokens|output tokens/i.test(source) && !explicitOverflow.test(source)) return false;
+  return explicitOverflow.test(source);
 }
-
 async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = process.env.OPENROUTER_API_KEY) {
   if (!key) throw providerError('OPENROUTER_API_KEY is not configured.', { code: 'NO_CREDENTIAL', fallbackEligible: true });
   let res;
@@ -38,6 +40,7 @@ async function callOpenRouter(model, systemPrompt, userPrompt, timeoutMs, key = 
       body: JSON.stringify({ model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }], temperature: 0 }),
     }, timeoutMs);
   } catch (err) {
+    if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`OpenRouter network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
   }
   if (res.ok) {
@@ -78,6 +81,7 @@ async function callOpenAI(model, systemPrompt, userPrompt, timeoutMs, key = proc
       }),
     }, timeoutMs);
   } catch (err) {
+    if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`OpenAI network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
   }
   if (res.ok) {
@@ -114,6 +118,7 @@ async function callAnthropic(model, systemPrompt, userPrompt, timeoutMs, key = p
       }),
     }, timeoutMs);
   } catch (err) {
+    if (err.code === 'REVIEW_DEADLINE_EXCEEDED') throw err;
     throw providerError(`Anthropic network/timeout failure: ${err.message}`, { code: 'NETWORK', fallbackEligible: true });
   }
   if (res.ok) {
