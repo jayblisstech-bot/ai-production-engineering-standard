@@ -28,5 +28,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+      - name: Validate reusable workflow YAML syntax without provider calls
+        run: ruby -e "require 'yaml'; YAML.load_file('.github/workflows/ai-review.yml', aliases: true)"
       - name: Execute APES node unit tests
         run: npm test
