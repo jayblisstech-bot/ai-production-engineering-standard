@@ -235,11 +235,11 @@ jobs:
           REQUESTED_CONFIG_PATH: ${{ inputs.config_path }}
           OUTPUT_PATH: /tmp/apes-trusted.json
         run: node pipeline/scripts/materialize-trusted-config.js
-      - name: Produce full review diff and changed-file list
+      - name: Produce complete changed-line diff with bounded AI context
         run: |
           cd project
           git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
-          git diff --no-ext-diff --unified=80 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
+          git diff --no-ext-diff --unified=3 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
       - name: Run bounded, fail-closed AI review
         id: review
         env:

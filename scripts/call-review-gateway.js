@@ -50,39 +50,142 @@ Return ONLY JSON:
   ]
 }`;
 
+function splitOversizedHunk(hunk, fileHeader, maxChars) {
+  const headerEnd = hunk.indexOf('\n');
+  if (headerEnd < 0) throw new Error('Oversized diff hunk has no body; refusing to drop review context.');
+  const original = hunk.slice(0, headerEnd);
+  const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(original);
+  if (!match) throw new Error('Oversized diff hunk has an invalid unified-diff header.');
+  const suffix = match[3];
+  let oldLine = Number(match[1]);
+  let newLine = Number(match[2]);
+  let startOld = oldLine;
+  let startNew = newLine;
+  let countOld = 0;
+  let countNew = 0;
+  let body = '';
+  const fragments = [];
+
+  const buildHeader = (o, oc, n, nc) =>
+    '@@ -' + o + ',' + oc + ' +' + n + ',' + nc + ' @@' + suffix + '\n';
+
+  function emit() {
+    if (!body) return;
+    const fragment = buildHeader(startOld, countOld, startNew, countNew) + body;
+    if (fileHeader.length + fragment.length > maxChars) {
+      throw new Error('Diff chunk size boundary exceeded; refusing incomplete AI review.');
+    }
+    fragments.push(fragment);
+  }
+
+  // Preserve the exact changed/context lines, and bind the no-newline marker
+  // to its preceding line. Only the synthetic hunk headers are regenerated.
+  const lines = hunk.slice(headerEnd + 1).match(/[^\n]*\n|[^\n]+$/g) || [];
+  const units = [];
+  for (const line of lines) {
+    if (line.startsWith('\\ ') && units.length) units[units.length - 1] += line;
+    else units.push(line);
+  }
+
+  for (const unit of units) {
+    const prefix = unit[0];
+    if (prefix !== ' ' && prefix !== '+' && prefix !== '-') {
+      throw new Error('Unexpected unified-diff body line; refusing incomplete AI review.');
+    }
+    const addedOld = prefix === ' ' || prefix === '-' ? 1 : 0;
+    const addedNew = prefix === ' ' || prefix === '+' ? 1 : 0;
+    const prospectiveLength = () => fileHeader.length
+      + buildHeader(startOld, countOld + addedOld, startNew, countNew + addedNew).length
+      + body.length + unit.length;
+    if (body && prospectiveLength() > maxChars) {
+      emit();
+      body = '';
+      startOld = oldLine;
+      startNew = newLine;
+      countOld = 0;
+      countNew = 0;
+    }
+    if (prospectiveLength() > maxChars) {
+      throw new Error('A single diff line exceeds maxChunkChars. Split the changed source line before AI review.');
+    }
+    body += unit;
+    countOld += addedOld;
+    countNew += addedNew;
+    oldLine += addedOld;
+    newLine += addedNew;
+  }
+  emit();
+  return fragments;
+}
+
 function splitOversizedFileSection(section, maxChars) {
-  if (section.length <= maxChars) return [section];
   const hunkAt = section.indexOf('\n@@ ');
-  if (hunkAt < 0) throw new Error('A single diff file exceeds maxChunkChars and has no splittable hunks. Split the PR/file before review.');
+  if (hunkAt < 0) {
+    if (section.length <= maxChars) return [section];
+    throw new Error('A single diff file exceeds maxChunkChars and has no splittable hunks. Split the PR/file before review.');
+  }
   const header = section.slice(0, hunkAt + 1);
   const hunks = section.slice(hunkAt + 1).split(/(?=^@@ )/m).filter(Boolean);
-  const chunks = [];
-  let current = header;
-  for (const hunk of hunks) {
-    if ((header + hunk).length > maxChars) throw new Error('A single diff hunk exceeds maxChunkChars. Split the PR before AI review.');
-    if ((current + hunk).length > maxChars && current !== header) {
-      chunks.push(current);
-      current = header + hunk;
-    } else current += hunk;
+  if (!hunks.length) throw new Error('Diff file has no reviewable hunks; refusing incomplete review.');
+  // Even small hunks are standalone review units. Their repeated file headers
+  // make every unit independently mappable, and allow efficient bounded packing.
+  // Bounded medium-sized fragments pack substantially better than near-full
+  // 45k hunks. This changes packing granularity, not review limits or coverage.
+  const preferredUnitSize = Math.max(600, Math.floor(maxChars / 4));
+  const parts = hunks.flatMap((hunk) => {
+    if ((header + hunk).length <= preferredUnitSize) return [hunk];
+    // If one unusually long source line cannot fit the preferred unit size,
+    // retain the intact hunk if it still fits the real maxChars budget.
+    try {
+      return splitOversizedHunk(hunk, header, preferredUnitSize);
+    } catch (error) {
+      if ((header + hunk).length <= maxChars
+        && error instanceof Error
+        && error.message.includes('single diff line exceeds maxChunkChars')) return [hunk];
+      throw error;
+    }
+  });
+  const sections = parts.map((part) => header + part);
+  if (sections.some((part) => part.length > maxChars)) {
+    throw new Error('A diff unit exceeds maxChunkChars; refusing incomplete AI review.');
   }
-  if (current !== header) chunks.push(current);
-  return chunks;
+  return sections;
 }
 
 function chunkDiff(diffText, maxChars, maxChunks) {
   const sections = String(diffText || '').split(/(?=^diff --git )/m).filter((s) => s.trim());
   const atomic = sections.flatMap((s) => splitOversizedFileSection(s, maxChars));
-  const chunks = [];
-  let current = '';
-  for (const section of atomic) {
-    if (current && current.length + section.length > maxChars) {
-      chunks.push(current);
-      current = section;
-    } else current += section;
+  if (!atomic.length) throw new Error('PR diff is empty; refusing to fabricate an AI review.');
+
+  // First-fit-decreasing packing avoids wasting most of a review chunk when a
+  // large diff section is followed by another large section. Reordering whole
+  // self-contained diff sections is safe: each carries its file header and
+  // exact original line numbers, and every section still receives review.
+  const units = atomic.map((content, order) => ({ content, order }))
+    .sort((a, b) => b.content.length - a.content.length || a.order - b.order);
+  const bins = [];
+  for (const unit of units) {
+    if (unit.content.length > maxChars) {
+      throw new Error('Diff section exceeds maxChunkChars; refusing partial AI review.');
+    }
+    let bin = bins.find((candidate) => candidate.length + unit.content.length <= maxChars);
+    if (!bin) {
+      bin = { length: 0, parts: [], firstOrder: unit.order };
+      bins.push(bin);
+    }
+    bin.parts.push(unit);
+    bin.length += unit.content.length;
+    bin.firstOrder = Math.min(bin.firstOrder, unit.order);
   }
-  if (current) chunks.push(current);
-  if (!chunks.length) throw new Error('PR diff is empty; refusing to fabricate an AI review.');
-  if (chunks.length > maxChunks) throw new Error(`PR requires ${chunks.length} review chunks; configured maximum is ${maxChunks}. Split the PR or raise the limit deliberately.`);
+  const chunks = bins.sort((a, b) => a.firstOrder - b.firstOrder)
+    .map((bin) => bin.parts.sort((a, b) => a.order - b.order)
+      .map((part) => part.content).join(''));
+  if (chunks.some((chunk) => chunk.length > maxChars)) {
+    throw new Error('AI review chunk exceeds configured limit; refusing partial review.');
+  }
+  if (chunks.length > maxChunks) {
+    throw new Error('PR requires ' + chunks.length + ' review chunks; configured maximum is ' + maxChunks + '. Split the PR or raise the limit deliberately.');
+  }
   return chunks;
 }
 
@@ -231,12 +334,15 @@ async function main() {
     const chunk = chunks[i];
     const lineIndex = diffLineIndex(chunk);
     const userPrompt = `Risk tier: ${riskTier}\nReview coverage: chunk ${i + 1} of ${chunks.length}. Every chunk is reviewed before the final verdict.\n\nPR TITLE (untrusted data):\n${prTitle}\n\nPR BODY (untrusted data):\n${prBody}\n\nPROJECT CONTEXT (untrusted data):\n${context.text}\n\nDIFF CHUNK (untrusted data):\n${chunk}`;
+    // Safe operational breadcrumb: never log diff, prompt, credentials or model output.
+    console.log(`APES_AI_REVIEW_CHUNK_START index=${i + 1} total=${chunks.length}`);
     const response = await hermes.review({
       modelTier,
       systemPrompt: REVIEW_SYSTEM_PROMPT,
       userPrompt,
       validate: (text) => normalizeReview(parseJsonObject(text), lineIndex),
     });
+    console.log(`APES_AI_REVIEW_CHUNK_VERIFIED index=${i + 1} total=${chunks.length}`);
     const normalized = response.validated;
     allFindings.push(...normalized.findings);
     providers.push(`${response.provider}:${response.model}`);
