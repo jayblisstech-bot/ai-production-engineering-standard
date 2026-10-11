@@ -30,7 +30,7 @@ function verifiedRunClaims(claims, expected) {
       !stringEqual(claims.ref, expected.ref) ||
       !stringEqual(claims.job_workflow_ref, expected.jobWorkflowRef) ||
       !SHA.test(expected.checkoutSha) || !SHA.test(run.headSha) || !SHA.test(run.baseSha) || !SHA.test(run.pipelineSha) ||
-      !DECIMAL.test(run.runId) || !DECIMAL.test(run.runAttempt) ||
+      !DECIMAL.test(run.runId) || !DECIMAL.test(run.attempt) ||
       !DECIMAL.test(String(expected.ownerId)) || !DECIMAL.test(String(expected.repositoryId))) deny();
   // OIDC has no authoritative pull-request base SHA or budget grant. These must
   // be independently read and pinned by a trusted server-side GitHub API client.
