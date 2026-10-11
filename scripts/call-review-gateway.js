@@ -380,4 +380,4 @@ async function main() {
 if (require.main === module) {
   main().catch((err) => { console.error(err.stack || err.message); process.exit(1); });
 }
-module.exports = { chunkDiff, collectContext, parseJsonObject, normalizeReview, dedupeFindings, postInlineComment };
+module.exports = { REVIEW_SYSTEM_PROMPT, chunkDiff, collectContext, parseJsonObject, normalizeReview, dedupeFindings, postInlineComment };
