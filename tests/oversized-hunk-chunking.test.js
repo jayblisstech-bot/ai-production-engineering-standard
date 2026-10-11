@@ -118,7 +118,7 @@ test('small ordinary diffs remain unchanged', () => {
 test('AI review reduces unchanged context while deterministic scanners retain deep context', () => {
   const fs = require('node:fs');
   const workflow = fs.readFileSync(require('node:path').join(__dirname, '../.github/workflows/ai-review.yml'), 'utf8');
-  const reviewMarker = '      - name: Produce complete changed-line diff with bounded AI context';
+  const reviewMarker = '  ai-review:';
   assert.ok(workflow.includes(reviewMarker));
   const before = workflow.slice(0, workflow.indexOf(reviewMarker));
   const after = workflow.slice(workflow.indexOf(reviewMarker));
