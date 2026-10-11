@@ -6,6 +6,23 @@
 
 The latest owner instruction reduces the **whole-review combined cap to USD $10**. No earlier $20 authorization remains valid for the next attempt. A mock cap is not a live spending guarantee.
 
+## Reusable APES core: repository-scoped grants and pluggable storage
+
+**Platform rule:** The central APES budget controller serves all repositories. A repository supplies its reviewed policy; the trusted APES gateway enforces a distinct owner-authorized spending grant for each immutable review run. There is no mandatory Supabase dependency and no need to create a new budget service for each repository.
+
+- Core contract is implemented in gateway/budget-service.js, with **no storage SDK import**. It accepts a trusted adapter supporting snapshot(grantId, binding), reserve({grantId,binding,requestId,quoteMicros}), and settle({grantId,binding,requestId,verified,actualMicros}). Calls may be synchronous in tests; production adapters may be asynchronous only after the service is explicitly adapted and retested for awaited atomic operations. Never silently substitute a non-atomic adapter.
+- Immutable run binding includes **repository (canonical lowercase owner/repo), PR number, run ID, attempt number, exact candidate head SHA, trusted base SHA, and pinned APES pipeline SHA**. The store must reject a grant access unless all fields match the authorized grant. Grant IDs must be globally unique or scoped by a trusted tenant namespace. Each paid attempt must use a fresh authorization.
+- Trusted grant policy independently fixes **allowed provider/model routes per repo/PR/grant**. Hermes' routing preferences do not authorize a provider excluded by that grant. A request with a different repository, PR or model is rejected *before* an atomic reservation or provider operation.
+- Model-specific prices and token maxima are **gateway-owned**, not taken from PR headers, request bodies or untrusted source changes. The mock service computes a conservative quote and reserves the full amount before invoking its injected fake transport. Incomplete usage charges the whole reservation; duplicate request IDs never re-enter transport.
+- gateway/sqlite-budget-store.js is a **Node 24+ local demonstration adapter** with WAL and atomic BEGIN IMMEDIATE transactions. gateway/budget-service.js is also tested against a separate in-memory adapter with no database import. This proves interface portability, not hosted production reliability or invoice enforcement.
+- gateway/mock-local-gateway.js is a loopback-only HTTP adapter for synthetic provider names; it uses the generic service and approved mock grant policies. Its test bearer token does not authenticate real GitHub job identity. Do not expose it on the internet or populate it with production provider credentials.
+
+### Production adapter acceptance criteria
+
+A production adapter (PostgreSQL, another transactional SQL engine, or an equivalent durable service) must provide atomic cross-process reservations, persistent run/grant identity, replay resistance, operational isolation, auditable ledger events, secure backup and crash recovery, and authorization that prevents untrusted repository code from creating grants or lowering its price estimates. Provider credentials must be removed from GitHub AI workers and restricted to a hardened hosted gateway with verified GitHub OIDC identity and exclusive paid egress. Real provider-specific upper charges must be verifiably bounded; unknown charges/models fail closed. These are **not implemented by the current mock PR**.
+
+**Budget examples, not new spending authorizations:** Numerra's current *one-run* maximum remains **$10**. A different repo may receive another approved limit for another run; neither grant can spend the other's allowance. No extra provider spending is authorized by this architecture change.
+
 ## Requirement and fail-closed scope
 
 For Numerra PR #11, owner authorized at most **USD $10 total provider charges** for exactly one future full APES review, covering all review chunks, provider/model retries, Gemini key rotation, and approved OpenAI/Anthropic/Gemini fallbacks. Existing APES maxChunks, maxChunkChars, 90-second request timeout, 20-minute worker timeout, and max-parallel 1 are **not** monetary controls. GitHub jobs have separate processes and cannot share an in-memory spending counter. Provider dashboards and delayed billing alerts are not a cross-provider hard cap.
