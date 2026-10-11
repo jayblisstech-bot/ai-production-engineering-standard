@@ -196,13 +196,62 @@ jobs:
           APES_CONFIG_PATH: /tmp/apes-trusted.json
         run: node pipeline/scripts/run-validation.js
 
+  provider-preflight:
+    name: Hermes trusted-policy and model-route preflight (no API calls)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    needs: [risk-classify, deterministic-checks, security-scan]
+    if: ${{ success() && needs.risk-classify.outputs.model_tier != 'skip' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    steps:
+      - name: Checkout exact project PR head and tracked base refs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: project
+          persist-credentials: false
+      - name: Checkout immutable APES release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jayblisstech-bot/ai-production-engineering-standard
+          ref: ${{ inputs.pipeline_ref }}
+          path: pipeline
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - name: Resolve immutable event-base APES policy
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REQUESTED_CONFIG_PATH: ${{ inputs.config_path }}
+          OUTPUT_PATH: /tmp/apes-trusted.json
+        run: node pipeline/scripts/materialize-trusted-config.js
+      - name: Verify tracked base policy and eligible Hermes routes before any AI calls
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
+          REQUESTED_CONFIG_PATH: ${{ inputs.config_path }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          MODEL_TIER: ${{ needs.risk-classify.outputs.model_tier }}
+          # These are booleans only: do not inject actual API keys into preflight.
+          HAS_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
+          HAS_ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY != '' }}
+          HAS_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY != '' }}
+          HAS_GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON != '' }}
+        run: node pipeline/scripts/hermes-preflight.js
+
   ai-manifest:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-    needs: [risk-classify, deterministic-checks, security-scan]
-    if: ${{ success() && needs.risk-classify.outputs.model_tier != 'skip' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    needs: [risk-classify, deterministic-checks, security-scan, provider-preflight]
+    if: ${{ success() && needs.provider-preflight.result == 'success' && needs.risk-classify.outputs.model_tier != 'skip' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     outputs:
       indices: ${{ steps.plan.outputs.indices }}
       digest: ${{ steps.plan.outputs.digest }}
@@ -403,7 +452,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-    needs: [ref-guard, risk-classify, deterministic-checks, security-scan, ai-review]
+    needs: [ref-guard, risk-classify, deterministic-checks, security-scan, provider-preflight, ai-review]
     if: always()
     steps:
       - name: Fail closed on invalid APES pipeline ref
