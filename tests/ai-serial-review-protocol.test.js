@@ -147,6 +147,22 @@ test('Valid P0 or P1 findings block the complete result; provider verdict tamper
   assert.throws(() => validateCompleteResults(plan, r), /verdict\/count tampering/);
 });
 
+test('Unrecognized review flags and unexpected finding data cannot be smuggled in artifacts', () => {
+  const plan = makePlan();
+  for (const key of ['needs_escalation', 'coverage_complete', 'review_override']) {
+    const results = allResults(plan);
+    results[0] = { ...results[0], [key]: true };
+    assert.throws(() => validateCompleteResults(plan, results), /unexpected or missing result artifact fields/);
+  }
+  const findings = [{
+    path: 'f0.ts', line: 1, side: 'RIGHT', severity: 'P2',
+    comment: 'Mock caution', nonstandard_metadata: 'ignored',
+  }];
+  const results = allResults(plan);
+  results[0] = { ...results[0], findings, verdict: 'PASS_WITH_WARNINGS' };
+  assert.throws(() => validateCompleteResults(plan, results), /unexpected or missing finding fields/);
+});
+
 test('Model output or result artifacts containing credential-like material are blocked', async () => {
   const plan = makePlan();
   const findings = [{
