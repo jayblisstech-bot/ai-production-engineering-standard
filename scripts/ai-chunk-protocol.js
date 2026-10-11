@@ -139,6 +139,21 @@ async function reviewOneChunk(plan, index, reviewFn) {
 
 function validateResult(plan, result) {
   insist(isObject(result) && result.protocolVersion === 1, 'invalid result schema');
+  const expectedFields = [
+    'protocolVersion', 'manifestDigest', 'baseSha', 'headSha', 'pipelineSha',
+    'runId', 'runAttempt', 'index', 'total', 'chunkSha256', 'verdict', 'findings',
+  ];
+  insist(Object.keys(result).length === expectedFields.length
+    && expectedFields.every((field) => Object.prototype.hasOwnProperty.call(result, field)),
+    'unexpected or missing result artifact fields');
+  insist(Array.isArray(result.findings), 'missing findings list');
+  for (const finding of result.findings) {
+    insist(isObject(finding), 'invalid finding object');
+    const findingFields = ['path', 'line', 'side', 'severity', 'comment'];
+    insist(Object.keys(finding).length === findingFields.length
+      && findingFields.every((field) => Object.prototype.hasOwnProperty.call(finding, field)),
+      'unexpected or missing finding fields');
+  }
   insist(Number.isInteger(result.index) && result.index >= 1
     && result.index <= plan.manifest.total, 'unexpected review index');
   for (const field of ['baseSha', 'headSha', 'pipelineSha', 'runId', 'runAttempt']) {
