@@ -348,10 +348,15 @@ function addedLineIndex(diffText) {
 function diffLineIndex(diffText) {
   const index = new Map();
   for (const f of parseUnifiedDiff(diffText)) {
-    index.set(f.path, {
-      RIGHT: new Set(f.added.map((a) => a.line)),
-      LEFT: new Set((f.removed || []).map((r) => r.line)),
-    });
+    // Hunk packing may place multiple independently headed fragments of the
+    // same file into one chunk; never discard earlier changed-line anchors.
+    let lines = index.get(f.path);
+    if (!lines) {
+      lines = { RIGHT: new Set(), LEFT: new Set() };
+      index.set(f.path, lines);
+    }
+    for (const added of f.added) lines.RIGHT.add(added.line);
+    for (const removed of f.removed || []) lines.LEFT.add(removed.line);
   }
   return index;
 }
