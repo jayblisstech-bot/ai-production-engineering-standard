@@ -147,6 +147,23 @@ test('Valid P0 or P1 findings block the complete result; provider verdict tamper
   assert.throws(() => validateCompleteResults(plan, r), /verdict\/count tampering/);
 });
 
+test('Model output or result artifacts containing credential-like material are blocked', async () => {
+  const plan = makePlan();
+  const findings = [{
+    path: 'f0.ts', line: 1, side: 'RIGHT', severity: 'P3',
+    comment: 'Detected secret ghp_' + 'A'.repeat(36),
+  }];
+  await assert.rejects(
+    reviewOneChunk(plan, 1, async ({ validate }) => ({
+      validated: validate(JSON.stringify({ findings })),
+    })),
+    /reviewer output contains potential secret/
+  );
+  const results = allResults(plan);
+  results[0] = { ...results[0], findings, verdict: 'PASS_WITH_WARNINGS' };
+  assert.throws(() => validateCompleteResults(plan, results), /artifact contains potential secret/);
+});
+
 test('Complete artifact coverage checks filenames, sizes, index consistency and content', () => {
   const plan = makePlan();
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-ai-review-'));
