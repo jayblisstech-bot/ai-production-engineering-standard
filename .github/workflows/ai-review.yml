@@ -196,29 +196,25 @@ jobs:
           APES_CONFIG_PATH: /tmp/apes-trusted.json
         run: node pipeline/scripts/run-validation.js
 
-  ai-review:
+  ai-manifest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
-      pull-requests: write
     needs: [risk-classify, deterministic-checks, security-scan]
     if: ${{ success() && needs.risk-classify.outputs.model_tier != 'skip' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
     outputs:
-      verdict: ${{ steps.review.outputs.verdict }}
-      p0_count: ${{ steps.review.outputs.p0_count }}
-      p1_count: ${{ steps.review.outputs.p1_count }}
-      p2_count: ${{ steps.review.outputs.p2_count }}
-      reviewed_chunks: ${{ steps.review.outputs.reviewed_chunks }}
+      indices: ${{ steps.plan.outputs.indices }}
+      digest: ${{ steps.plan.outputs.digest }}
     steps:
-      - name: Checkout project PR head
+      - name: Checkout exact project PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           path: project
           persist-credentials: false
-      - name: Checkout pinned APES pipeline
+      - name: Checkout immutable APES release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: jayblisstech-bot/ai-production-engineering-standard
@@ -240,27 +236,167 @@ jobs:
           cd project
           git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
           git diff --no-ext-diff --unified=3 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
-      - name: Run bounded, fail-closed AI review
-        id: review
+      - name: Generate complete immutable chunk review manifest
+        id: plan
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
+          RISK_TIER: ${{ needs.risk-classify.outputs.risk }}
+          MODEL_TIER: ${{ needs.risk-classify.outputs.model_tier }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PIPELINE_SHA: ${{ inputs.pipeline_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          DIFF_TEXT_PATH: /tmp/pr.diff
+          CHANGED_FILES_FILE: /tmp/changed_files.txt
+        run: node pipeline/scripts/ai-chunk-protocol.js prepare
+
+  ai-review-chunk:
+    name: APES AI review chunk ${{ matrix.index }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    needs: [risk-classify, ai-manifest]
+    if: ${{ needs.ai-manifest.result == 'success' }}
+    # No concurrent provider calls or increase to the approved per-job timebox.
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        index: ${{ fromJSON(needs.ai-manifest.outputs.indices) }}
+    steps:
+      - name: Checkout exact project PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: project
+          persist-credentials: false
+      - name: Checkout immutable APES release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jayblisstech-bot/ai-production-engineering-standard
+          ref: ${{ inputs.pipeline_ref }}
+          path: pipeline
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - name: Resolve trusted base-branch APES policy
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REQUESTED_CONFIG_PATH: ${{ inputs.config_path }}
+          OUTPUT_PATH: /tmp/apes-trusted.json
+        run: node pipeline/scripts/materialize-trusted-config.js
+      - name: Produce complete changed-line diff with bounded AI context
+        run: |
+          cd project
+          git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
+          git diff --no-ext-diff --unified=3 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
+      - name: Review one bound chunk, fail closed on incomplete result
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_API_KEYS_JSON: ${{ secrets.GEMINI_API_KEYS_JSON }}
-          GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           PROJECT_ROOT: ${{ github.workspace }}/project
           APES_CONFIG_PATH: /tmp/apes-trusted.json
           RISK_TIER: ${{ needs.risk-classify.outputs.risk }}
           MODEL_TIER: ${{ needs.risk-classify.outputs.model_tier }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PIPELINE_SHA: ${{ inputs.pipeline_ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           DIFF_TEXT_PATH: /tmp/pr.diff
           CHANGED_FILES_FILE: /tmp/changed_files.txt
-        run: node pipeline/scripts/call-review-gateway.js
+          EXPECTED_MANIFEST_DIGEST: ${{ needs.ai-manifest.outputs.digest }}
+          CHUNK_INDEX: ${{ matrix.index }}
+          RESULT_FILE: ${{ github.workspace }}/result.json
+        run: node pipeline/scripts/ai-chunk-protocol.js review
+      - name: Save minimal validated chunk result only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apes-ai-chunk-${{ matrix.index }}
+          path: ${{ github.workspace }}/result.json
+          if-no-files-found: error
+          retention-days: 1
+
+  ai-review:
+    name: APES AI full-coverage aggregate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    needs: [risk-classify, ai-manifest, ai-review-chunk]
+    if: ${{ always() && needs.ai-manifest.result == 'success' && needs.ai-review-chunk.result == 'success' }}
+    outputs:
+      verdict: ${{ steps.review.outputs.verdict }}
+      p0_count: ${{ steps.review.outputs.p0_count }}
+      p1_count: ${{ steps.review.outputs.p1_count }}
+      p2_count: ${{ steps.review.outputs.p2_count }}
+      reviewed_chunks: ${{ steps.review.outputs.reviewed_chunks }}
+    steps:
+      - name: Checkout exact project PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: project
+          persist-credentials: false
+      - name: Checkout immutable APES release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jayblisstech-bot/ai-production-engineering-standard
+          ref: ${{ inputs.pipeline_ref }}
+          path: pipeline
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - name: Resolve trusted base-branch APES policy
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REQUESTED_CONFIG_PATH: ${{ inputs.config_path }}
+          OUTPUT_PATH: /tmp/apes-trusted.json
+        run: node pipeline/scripts/materialize-trusted-config.js
+      - name: Produce complete changed-line diff with bounded AI context
+        run: |
+          cd project
+          git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/changed_files.txt
+          git diff --no-ext-diff --unified=3 "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > /tmp/pr.diff
+      - name: Download only this run's immutable chunk result artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: apes-ai-chunk-*
+          path: /tmp/apes-results
+          merge-multiple: false
+      - name: Require exact total coverage before posting any review findings
+        id: review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PROJECT_ROOT: ${{ github.workspace }}/project
+          APES_CONFIG_PATH: /tmp/apes-trusted.json
+          RISK_TIER: ${{ needs.risk-classify.outputs.risk }}
+          MODEL_TIER: ${{ needs.risk-classify.outputs.model_tier }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PIPELINE_SHA: ${{ inputs.pipeline_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          DIFF_TEXT_PATH: /tmp/pr.diff
+          CHANGED_FILES_FILE: /tmp/changed_files.txt
+          EXPECTED_MANIFEST_DIGEST: ${{ needs.ai-manifest.outputs.digest }}
+          RESULTS_DIRECTORY: /tmp/apes-results
+        run: node pipeline/scripts/ai-chunk-protocol.js aggregate
 
   quality-gate:
     runs-on: ubuntu-latest
