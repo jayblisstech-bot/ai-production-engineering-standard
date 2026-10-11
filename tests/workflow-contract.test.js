@@ -4,7 +4,17 @@ const template = fs.readFileSync(path.join(__dirname, '..', 'templates', 'projec
 const assuranceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'security-assurance.yml'), 'utf8');
 const RUNTIME_SHA = '4f02a1ed79fb972998623a62c05a254e0e450687';
 test('reusable workflow declares all Hermes provider secrets', () => { for (const name of ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GEMINI_API_KEYS_JSON']) assert.match(workflow, new RegExp(`${name}:`)); });
-test('provider secrets are passed only in the AI review section, not deterministic execution jobs', () => { const deterministic = workflow.slice(workflow.indexOf('  deterministic-checks:'), workflow.indexOf('  ai-review:')); assert.doesNotMatch(deterministic, /OPENROUTER_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY/); const ai = workflow.slice(workflow.indexOf('  ai-review:'), workflow.indexOf('  quality-gate:')); assert.match(ai, /OPENAI_API_KEY/); assert.match(ai, /ANTHROPIC_API_KEY/); assert.match(ai, /GEMINI_API_KEYS_JSON/); });
+test('provider credentials exist only in the one-chunk AI worker, never deterministic or aggregation jobs', () => {
+  const deterministic = workflow.slice(workflow.indexOf('  deterministic-checks:'), workflow.indexOf('  ai-review-chunk:'));
+  const ai = workflow.slice(workflow.indexOf('  ai-review-chunk:'), workflow.indexOf('  ai-review:'));
+  const aggregate = workflow.slice(workflow.indexOf('  ai-review:'), workflow.indexOf('  quality-gate:'));
+  const secrets = /OPENROUTER_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY/;
+  assert.doesNotMatch(deterministic, secrets);
+  assert.match(ai, /OPENAI_API_KEY/);
+  assert.match(ai, /ANTHROPIC_API_KEY/);
+  assert.match(ai, /GEMINI_API_KEYS_JSON/);
+  assert.doesNotMatch(aggregate, secrets);
+});
 test('AI review security scan verifies configured runtime headers before repository assurance', () => {
   const securityScan = workflow.slice(workflow.indexOf('  security-scan:'), workflow.indexOf('  deterministic-checks:'));
   assert.match(securityScan, /verify-configured-security-headers\.js/);
