@@ -24,6 +24,7 @@ function validateGrantPolicy(policy) {
       typeof policy.grantId !== 'string' || !ID.test(policy.grantId) ||
       typeof policy.repository !== 'string' ||
       !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(policy.repository) ||
+      policy.repository.includes('..') ||
       !/^[1-9][0-9]{0,8}$/.test(String(policy.prNumber)) ||
       !policy.models || typeof policy.models !== 'object') {
     throw new Error('APES_BUDGET_INVALID_GRANT_POLICY');
