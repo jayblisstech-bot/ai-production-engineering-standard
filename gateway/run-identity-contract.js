@@ -24,12 +24,12 @@ function verifiedRunClaims(claims, expected) {
       !stringEqual(claims.repository_owner_id, String(expected.ownerId)) ||
       !stringEqual(claims.repository_id, String(expected.repositoryId)) ||
       !stringEqual(claims.run_id, run.runId) ||
-      !stringEqual(claims.run_attempt, run.runAttempt) ||
-      !stringEqual(claims.sha, run.headSha) ||
+      !stringEqual(claims.run_attempt, run.attempt) ||
+      !stringEqual(claims.sha, expected.checkoutSha) ||
       !stringEqual(claims.workflow_sha, run.pipelineSha) ||
       !stringEqual(claims.ref, expected.ref) ||
       !stringEqual(claims.job_workflow_ref, expected.jobWorkflowRef) ||
-      !SHA.test(run.headSha) || !SHA.test(run.baseSha) || !SHA.test(run.pipelineSha) ||
+      !SHA.test(expected.checkoutSha) || !SHA.test(run.headSha) || !SHA.test(run.baseSha) || !SHA.test(run.pipelineSha) ||
       !DECIMAL.test(run.runId) || !DECIMAL.test(run.runAttempt) ||
       !DECIMAL.test(String(expected.ownerId)) || !DECIMAL.test(String(expected.repositoryId))) deny();
   // OIDC has no authoritative pull-request base SHA or budget grant. These must
