@@ -18,7 +18,8 @@ async function setup(t) {
   const store = new SqliteBudgetStore(path.join(dir, 'mock-ledger.db'));
   t.after(() => store.close());
   store.createGrant({ grantId: 'numerra-10', binding, capUsd: '10' });
-  const server = createMockGateway({ store, token, env: { APES_MOCK_GATEWAY_ONLY: '1' } });
+  const policies = [{ grantId: 'numerra-10', repository: binding.repository, prNumber: binding.prNumber, models: { openai: ['mock-openai'], gemini: ['mock-gemini'], anthropic: ['mock-claude'] } }];
+  const server = createMockGateway({ store, policies, token, env: { APES_MOCK_GATEWAY_ONLY: '1' } });
   t.after(() => new Promise((resolve) => server.close(resolve)));
   const url = await listenLoopback(server);
   return { store, url };
@@ -93,4 +94,49 @@ test('simulated provider failure consumes reserved ceiling and cannot escape cap
   assert.equal(fail.status, 503);
   assert.equal(store.snapshot('numerra-10', binding).usedMicros, 2000000);
   assert.equal(store.snapshot('numerra-10', binding).remainingMicros, 8000000);
+});
+
+test('two repositories have independently authorized budgets and model policies', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-multi-repo-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = new SqliteBudgetStore(path.join(dir, 'shared-ledger.db'));
+  t.after(() => store.close());
+  const other = { ...binding, repository: 'team/TrueMail-AI', prNumber: '7' };
+  const policies = [
+    { grantId: 'numerra-10', repository: binding.repository, prNumber: binding.prNumber, models: { openai: ['mock-openai'], gemini: ['mock-gemini'] } },
+    { grantId: 'truemail-3', repository: other.repository, prNumber: other.prNumber, models: { anthropic: ['mock-claude'] } },
+  ];
+  store.createGrant({ grantId: 'numerra-10', binding, capUsd: '10' });
+  store.createGrant({ grantId: 'truemail-3', binding: other, capUsd: '3' });
+  const server = createMockGateway({ store, policies, token, env: { APES_MOCK_GATEWAY_ONLY: '1' } });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const url = await listenLoopback(server);
+  const first = await call(url, { requestId: 'numerra-1' });
+  assert.equal(first.status, 200);
+  const second = await call(url, {
+    grantId: 'truemail-3', binding: other, requestId: 'truemail-1',
+    provider: 'anthropic', model: 'mock-claude',
+  });
+  assert.equal(second.status, 200);
+  assert.equal(store.snapshot('numerra-10', binding).remainingMicros, 8000000);
+  assert.equal(store.snapshot('truemail-3', other).remainingMicros, 1000000);
+  const deniedModel = await call(url, {
+    grantId: 'truemail-3', binding: other, requestId: 'truemail-denied',
+    provider: 'gemini', model: 'mock-gemini',
+  });
+  assert.equal(deniedModel.status, 403);
+  assert.match(deniedModel.body.error, /MODEL_NOT_APPROVED_FOR_REPOSITORY/);
+  const crossRepo = await call(url, {
+    grantId: 'numerra-10', binding: other, requestId: 'cross-repo',
+    provider: 'openai', model: 'mock-openai',
+  });
+  assert.equal(crossRepo.status, 403);
+  assert.match(crossRepo.body.error, /REPOSITORY_POLICY_DENIED/);
+  const exhausted = await call(url, {
+    grantId: 'truemail-3', binding: other, requestId: 'truemail-2',
+    provider: 'anthropic', model: 'mock-claude',
+  });
+  assert.equal(exhausted.status, 429);
+  assert.equal(store.snapshot('numerra-10', binding).remainingMicros, 8000000);
+  assert.equal(store.snapshot('truemail-3', other).remainingMicros, 1000000);
 });
