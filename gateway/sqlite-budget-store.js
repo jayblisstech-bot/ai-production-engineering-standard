@@ -42,7 +42,7 @@ class SqliteBudgetStore {
       'reserved_micros INTEGER NOT NULL DEFAULT 0 CHECK (reserved_micros >= 0),',
       "state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','closed')),",
       'CHECK (used_micros + reserved_micros <= limit_micros));',
-      'CREATE TABLE IF NOT EXISTS approval_nonces (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL),',
+      'CREATE TABLE IF NOT EXISTS approval_nonces (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);',
       'CREATE TABLE IF NOT EXISTS budget_requests (',
       'grant_id TEXT NOT NULL, request_id TEXT NOT NULL,',
       'ceiling_micros INTEGER NOT NULL CHECK (ceiling_micros > 0),',
