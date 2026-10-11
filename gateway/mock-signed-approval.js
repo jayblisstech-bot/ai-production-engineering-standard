@@ -48,4 +48,21 @@ function signMockApproval({secret,grantId,binding,capUsd,nonce,expiresAt}){
  const payload=canonical({grantId,binding,capUsd,nonce,expiresAt});
  return Object.freeze({...payload,capUsd,mac:signature(secret,payload)});
 }
-module.exports={createMockApprovalVerifier,signMockApproval};
+function createSynchronousApprovalSignatureVerifier({secret,now=()=>Date.now()}){
+ if(!Buffer.isBuffer(secret)||secret.length<32||typeof now!=='function')deny();
+ const key=Buffer.from(secret);
+ return function verify({approval,grantId,binding,capUsd,nonce,expiresAt}){
+  if(!approval||typeof approval!=='object'||Array.isArray(approval)||
+     typeof approval.mac!=='string'|| !/^[0-9a-f]{64}$/.test(approval.mac))return false;
+  try{
+   const payload=canonical({grantId,binding,capUsd,nonce,expiresAt});
+   if(approval.grantId!==grantId||approval.nonce!==nonce||
+      approval.expiresAt!==expiresAt||approval.capUsd!==capUsd||
+      bindingKey(assertBinding(approval.binding))!==bindingKey(payload.binding))return false;
+   const timestamp=now();
+   if(!Number.isSafeInteger(timestamp)||expiresAt<=timestamp||expiresAt>timestamp+600000)return false;
+   return crypto.timingSafeEqual(Buffer.from(signature(key,payload),'hex'),Buffer.from(approval.mac,'hex'));
+  }catch(_){return false;}
+ };
+}
+module.exports={createMockApprovalVerifier,signMockApproval,createSynchronousApprovalSignatureVerifier};
