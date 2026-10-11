@@ -181,6 +181,19 @@ test('Complete artifact coverage checks filenames, sizes, index consistency and 
   }
 });
 
+test('Symlinked artifact directories are refused before any model-result aggregation', { skip: process.platform === 'win32' }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-artifact-symlink-'));
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'apes-external-result-'));
+  try {
+    fs.writeFileSync(path.join(target, 'result.json'), JSON.stringify({ index: 1 }));
+    fs.symlinkSync(target, path.join(root, 'apes-ai-chunk-1'), 'dir');
+    assert.throws(() => readArtifactResults(root, 1), /unsafe artifact directory/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
 test('Over-budget chunks, unknown model tier, invalid refs and introduced secrets fail closed', () => {
   assert.throws(() => makePlan(13), /configured maximum/);
   assert.throws(() => makePlan(9, { modelTier: 'skip' }), /skipped model tier/);
