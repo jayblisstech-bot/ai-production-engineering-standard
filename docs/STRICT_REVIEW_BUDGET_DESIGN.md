@@ -32,6 +32,19 @@ A trusted, durable **budget gateway**, not untrusted PR code or individual GitHu
 - \`simulateGatewayCall\` demonstrates reservation **before** a mock transport. It contains **no** HTTP calls or real credentials.
 - \`assertProductionReady()\` always fails closed. The in-memory ledger is unsuitable for live GitHub matrices. **Never call this module a deployed or verified $10 spending cap.**
 
+
+## Isolated SQLite and local mock gateway evidence
+
+This PR additionally includes three **mock-only / Node 24+** files:
+
+- \`gateway/sqlite-budget-store.js\` persists a bounded grant and each provider-attempt reservation in an SQLite file. Transactions use WAL, FULL synchronous mode and \`BEGIN IMMEDIATE\` so concurrent local gateway processes cannot each reuse the same $10 balance. The authorized binding includes exact immutable review run, attempt, candidate head, trusted base and APES release SHA. Unknown charges consume the entire reservation. Replayed IDs cannot issue another request.
+- \`gateway/mock-local-gateway.js\` is a **loopback-only** HTTP simulator. It requires an explicit mock flag and a test bearer token. It accepts only artificial model names (\`mock-openai\`, \`mock-claude\`, \`mock-gemini\`) and uses one hardcoded *example* pricing schedule for fake replies; it makes **zero paid/external provider calls**. Incoming caller price, quote and token estimates are ignored.
+- \`tests/durable-budget-gateway.test.js\` and \`tests/mock-local-gateway.test.js\` verify shared SQLite reservations across different processes, cross-provider simulated HTTP traffic, race conditions, grant/run binding, authorization failures, retries and simulated provider failure.
+
+**Operational limitation:** This local simulator is **not a production trusted gateway**. SQLite persistence alone does not provide GitHub OIDC authorization, isolated vendor-secret custody, exclusive provider egress, real model API adapters, token enforcement, verified provider tariffs, vendor invoice reconciliation, durable gateway hosting/availability, or an authenticated administrative grant issuer. Node 24 is needed for the isolated SQLite module; the existing APES Node 20 review runners have not been changed. Do not forward production provider keys into the simulator or merge/use this as proof of a live $10 vendor-charge ceiling.
+
+**Owner's $10 grant is not created by this PR.** No live review may start until the production requirements in this document are independently verified and approved.
+
 ## Required integration evidence and approval gates
 
 1. Implement and deploy gateway + atomic persistent backing store in an *isolated non-production environment*. Do not use or migrate Numerra's production database or expose tenant data.
