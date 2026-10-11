@@ -7,6 +7,7 @@ const { SqliteBudgetStore } = require('../gateway/sqlite-budget-store');
 const { createMockGateway, listenLoopback } = require('../gateway/mock-local-gateway');
 
 const binding = {
+  repository: 'jayblisstech-bot/Numerra', prNumber: '11',
   runId: '38171001847', attempt: '1', headSha: 'a'.repeat(40),
   baseSha: 'b'.repeat(40), pipelineSha: 'c'.repeat(40),
 };
@@ -75,6 +76,7 @@ test('unknown model and unauthorized run attempts do not consume budget', async 
   const { store, url } = await setup(t);
   assert.equal((await call(url, { requestId: 'unknown', model: 'any-real-model' })).status, 400);
   assert.equal((await call(url, { requestId: 'wrong', binding: { ...binding, attempt: '2' } })).status, 403);
+  assert.equal((await call(url, { requestId: 'wrong-repo', binding: { ...binding, repository: 'example/Other' } })).status, 403);
   assert.equal(store.snapshot('numerra-10', binding).remainingMicros, 10000000);
 });
 test('duplicate request IDs cannot cause another billable attempt', async (t) => {
