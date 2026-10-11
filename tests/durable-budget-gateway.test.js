@@ -8,6 +8,7 @@ const { SqliteBudgetStore } = require('../gateway/sqlite-budget-store');
 const { parseCapUsd } = require('../scripts/review-dollar-budget');
 
 const binding = {
+  repository: 'jayblisstech-bot/Numerra', prNumber: '11',
   runId: '38171001847', attempt: '1',
   headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40),
   pipelineSha: 'c'.repeat(40),
@@ -49,6 +50,7 @@ test('replay and incorrect immutable attempt cannot reset a grant', (t) => {
   assert.equal(reopened.snapshot(grantId, binding).reservedMicros, 6000000);
   assert.throws(() => reopened.reserve({ grantId, binding, requestId: 'attempt-a', quoteMicros: 2000000 }), /DUPLICATE_REQUEST/);
   assert.throws(() => reopened.reserve({ grantId, binding: { ...binding, attempt: '2' }, requestId: 'different', quoteMicros: 1 }), /UNAUTHORIZED_GRANT/);
+  assert.throws(() => reopened.reserve({ grantId, binding: { ...binding, repository: 'example/Other' }, requestId: 'different', quoteMicros: 1 }), /UNAUTHORIZED_GRANT/);
 });
 test('provider-verified cost releases unused ceiling and unknown spend consumes full reservation', (t) => {
   const { store } = setup(t);
