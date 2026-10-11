@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - "scripts/call-review-gateway.js"
+      - "scripts/ai-chunk-protocol.js"
+      - "tests/ai-serial-review-protocol.test.js"
+      - ".github/workflows/ai-review.yml"
       - "tests/oversized-hunk-chunking.test.js"
       - ".github/workflows/ai-diff-chunking-tests.yml"
   workflow_dispatch:
