@@ -52,7 +52,7 @@ test('missing/stale/invalid price proof or token ceiling always fails closed', (
   assert.throws(() => ceilingMicros({ ...rates, outputMicroUsdPerMillion: -1 }, limits, now), /INVALID_OUTPUT_RATE/);
   assert.throws(() => ceilingMicros(rates, { ...limits, maxOutputTokens: 0 }, now), /INVALID_OUTPUT_TOKENS/);
   assert.throws(() => ceilingMicros(rates, { ...limits, maxInputTokens: Infinity }, now), /INVALID_INPUT_TOKENS/);
-  assert.throws(() => ceilingMicros(rates, { maxInputTokens: 999999999999, maxOutputTokens: 999999999999 }, now), /INVALID_QUOTED_CEILING/);
+  assert.throws(() => ceilingMicros({ ...rates, inputMicroUsdPerMillion: Number.MAX_SAFE_INTEGER }, { maxInputTokens: 999999999999, maxOutputTokens: 999999999999 }, now), /INVALID_QUOTED_CEILING/);
 });
 
 test('reservation cannot push used + reserved over $20', () => {
