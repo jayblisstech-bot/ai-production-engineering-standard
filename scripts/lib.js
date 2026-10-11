@@ -340,7 +340,9 @@ function parseUnifiedDiff(diffText) {
 function addedLineIndex(diffText) {
   const index = new Map();
   for (const f of parseUnifiedDiff(diffText)) {
-    index.set(f.path, new Set(f.added.map((a) => a.line)));
+    let lines = index.get(f.path);
+    if (!lines) { lines = new Set(); index.set(f.path, lines); }
+    for (const added of f.added) lines.add(added.line);
   }
   return index;
 }
