@@ -60,9 +60,12 @@ function resolveAvailableRoutes(config, modelTier, env) {
     openai: strictFlag(env.HAS_OPENAI_API_KEY, 'HAS_OPENAI_API_KEY'),
     anthropic: strictFlag(env.HAS_ANTHROPIC_API_KEY, 'HAS_ANTHROPIC_API_KEY'),
     openrouter: strictFlag(env.HAS_OPENROUTER_API_KEY, 'HAS_OPENROUTER_API_KEY'),
-    gemini: strictFlag(env.HAS_GEMINI_API_KEY, 'HAS_GEMINI_API_KEY') ||
-      strictFlag(env.HAS_GEMINI_API_KEYS_JSON, 'HAS_GEMINI_API_KEYS_JSON'),
+    gemini: false,
   };
+  // Validate both Gemini flags even when one is present; never short-circuit malformed inputs.
+  const singleGemini = strictFlag(env.HAS_GEMINI_API_KEY, 'HAS_GEMINI_API_KEY');
+  const pooledGemini = strictFlag(env.HAS_GEMINI_API_KEYS_JSON, 'HAS_GEMINI_API_KEYS_JSON');
+  present.gemini = singleGemini || pooledGemini;
   // Synthetic flags are enough for Hermes' deterministic route computation.
   // None of these are real API keys or leave the runner.
   const simulatedCredentials = {
