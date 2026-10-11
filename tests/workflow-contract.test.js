@@ -4,16 +4,36 @@ const template = fs.readFileSync(path.join(__dirname, '..', 'templates', 'projec
 const assuranceWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'security-assurance.yml'), 'utf8');
 const RUNTIME_SHA = '4f02a1ed79fb972998623a62c05a254e0e450687';
 test('reusable workflow declares all Hermes provider secrets', () => { for (const name of ['OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GEMINI_API_KEYS_JSON']) assert.match(workflow, new RegExp(`${name}:`)); });
-test('provider credentials exist only in the one-chunk AI worker, never deterministic or aggregation jobs', () => {
-  const deterministic = workflow.slice(workflow.indexOf('  deterministic-checks:'), workflow.indexOf('  ai-review-chunk:'));
-  const ai = workflow.slice(workflow.indexOf('  ai-review-chunk:'), workflow.indexOf('  ai-review:'));
+test('provider secrets are not passed to preflight; only credential-presence booleans are visible before model calls', () => {
+  const deterministic = workflow.slice(workflow.indexOf('  deterministic-checks:'), workflow.indexOf('  provider-preflight:'));
+  const preflight = workflow.slice(workflow.indexOf('  provider-preflight:'), workflow.indexOf('  ai-manifest:'));
+  const manifest = workflow.slice(workflow.indexOf('  ai-manifest:'), workflow.indexOf('  ai-review-chunk:'));
+  const worker = workflow.slice(workflow.indexOf('  ai-review-chunk:'), workflow.indexOf('  ai-review:'));
   const aggregate = workflow.slice(workflow.indexOf('  ai-review:'), workflow.indexOf('  quality-gate:'));
-  const secrets = /OPENROUTER_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY/;
-  assert.doesNotMatch(deterministic, secrets);
-  assert.match(ai, /OPENAI_API_KEY/);
-  assert.match(ai, /ANTHROPIC_API_KEY/);
-  assert.match(ai, /GEMINI_API_KEYS_JSON/);
-  assert.doesNotMatch(aggregate, secrets);
+  const injectedSecrets = /^\s+(?:OPENROUTER_API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY|GEMINI_API_KEYS_JSON):\s+\$\{\{\s*secrets\./m;
+  for (const section of [deterministic, preflight, manifest, aggregate]) {
+    assert.doesNotMatch(section, injectedSecrets);
+  }
+  for (const key of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'GEMINI_API_KEYS_JSON', 'OPENROUTER_API_KEY']) {
+    assert.ok(preflight.includes('HAS_' + key + ": ${{ secrets." + key + " != '' }}"),
+      'preflight requires only the presence bit for ' + key);
+    assert.ok(worker.includes(key + ': ${{ secrets.' + key + ' }}'),
+      'worker can access approved credential ' + key);
+  }
+});
+test('provider preflight verifies pinned policy before a paid review manifest is created', () => {
+  const preflight = workflow.slice(workflow.indexOf('  provider-preflight:'), workflow.indexOf('  ai-manifest:'));
+  const manifest = workflow.slice(workflow.indexOf('  ai-manifest:'), workflow.indexOf('  ai-review-chunk:'));
+  const quality = workflow.slice(workflow.indexOf('  quality-gate:'));
+  assert.match(preflight, /materialize-trusted-config\.js/);
+  assert.match(preflight, /hermes-preflight\.js/);
+  assert.match(preflight, /BASE_REF: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/);
+  assert.match(preflight, /MODEL_TIER: \$\{\{ needs\.risk-classify\.outputs\.model_tier \}\}/);
+  assert.match(manifest, /needs: \[risk-classify, deterministic-checks, security-scan, provider-preflight\]/);
+  assert.match(manifest, /needs\.provider-preflight\.result == 'success'/);
+  assert.match(quality, /needs: \[ref-guard, risk-classify, deterministic-checks, security-scan, provider-preflight, ai-review\]/);
+  assert.ok(workflow.indexOf('  provider-preflight:') < workflow.indexOf('  ai-manifest:'));
+  assert.ok(workflow.indexOf('  ai-manifest:') < workflow.indexOf('  ai-review-chunk:'));
 });
 test('AI review security scan verifies configured runtime headers before repository assurance', () => {
   const securityScan = workflow.slice(workflow.indexOf('  security-scan:'), workflow.indexOf('  deterministic-checks:'));
