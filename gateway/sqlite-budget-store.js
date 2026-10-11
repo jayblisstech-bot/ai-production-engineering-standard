@@ -132,6 +132,6 @@ class SqliteBudgetStore {
       remainingMicros: row.limit_micros - row.used_micros - row.reserved_micros,
     });
   }
-  close() { this.db.close(); }
+  close() { if (this.db) { this.db.close(); this.db = null; } }
 }
 module.exports = { SqliteBudgetStore };
