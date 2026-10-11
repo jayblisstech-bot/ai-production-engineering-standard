@@ -42,6 +42,9 @@ function checkBasePolicyFreshness(projectRoot, baseSha, baseRef, configPath) {
   if (!/^[0-9a-f]{40}$/.test(currentBaseSha)) throw new Error('APES_HERMES_PREFLIGHT_INVALID_TRACKED_BASE');
   const eventBlob = git(projectRoot, ['rev-parse', baseSha + ':' + configPath], true);
   const currentBlob = git(projectRoot, ['rev-parse', currentBaseSha + ':' + configPath], true);
+  if (!eventBlob || !currentBlob) {
+    throw new Error('APES_HERMES_PREFLIGHT_MISSING_TRUSTED_POLICY: both event and tracked base must contain trusted policy.');
+  }
   if (eventBlob !== currentBlob) {
     throw new Error('APES_HERMES_PREFLIGHT_STALE_TRUSTED_POLICY: pull-request event base policy differs from tracked base branch. Refresh the PR base integration before spending on AI review.');
   }
