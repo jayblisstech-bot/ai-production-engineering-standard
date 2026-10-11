@@ -106,6 +106,24 @@ test('Hermes preflight: unrelated main commit does not invalidate unchanged poli
   assert.notEqual(result.eventBaseSha, result.currentBaseSha);
 });
 
+test('Hermes preflight: policy absent at both base refs fails closed', (t) => {
+  const { root } = repo(t);
+  git(root, ['rm', '.apes.json']);
+  git(root, ['commit', '-qm', 'remove policy']);
+  const absentBase = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', 'refs/remotes/origin/main', absentBase]);
+  assert.throws(() => checkBasePolicyFreshness(root, absentBase, 'main', '.apes.json'), /MISSING_TRUSTED_POLICY/);
+});
+
+test('Hermes preflight: event policy missing but tracked base policy present fails closed', (t) => {
+  const { root, base } = repo(t);
+  git(root, ['rm', '.apes.json']);
+  git(root, ['commit', '-qm', 'remove event policy']);
+  const absentBase = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', 'refs/remotes/origin/main', base]);
+  assert.throws(() => checkBasePolicyFreshness(root, absentBase, 'main', '.apes.json'), /MISSING_TRUSTED_POLICY/);
+});
+
 test('Hermes preflight: missing remote base ref cannot permit a provider call', (t) => {
   const { root, base } = repo(t);
   assert.throws(() => checkBasePolicyFreshness(root, base, 'absent-branch', '.apes.json'), /GIT_FAILURE/);
