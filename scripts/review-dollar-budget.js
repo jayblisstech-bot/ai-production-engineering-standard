@@ -31,6 +31,13 @@ function assertBinding(binding) {
   if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
     throw new Error('APES_BUDGET_INVALID_RUN_BINDING');
   }
+  // Repository and PR are mandatory: budgets for distinct clients must not alias.
+  if (typeof binding.repository !== 'string' ||
+      !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(binding.repository) ||
+      binding.repository.includes('..') ||
+      !/^[1-9][0-9]{0,8}$/.test(String(binding.prNumber))) {
+    throw new Error('APES_BUDGET_INVALID_REPOSITORY_SCOPE');
+  }
   if (!/^[1-9][0-9]{0,17}$/.test(String(binding.runId)) ||
       !/^[1-9][0-9]{0,8}$/.test(String(binding.attempt)) ||
       !SHA_RE.test(binding.headSha || '') ||
@@ -39,6 +46,7 @@ function assertBinding(binding) {
     throw new Error('APES_BUDGET_INVALID_RUN_BINDING');
   }
   return Object.freeze({
+    repository: binding.repository.toLowerCase(), prNumber: String(binding.prNumber),
     runId: String(binding.runId), attempt: String(binding.attempt),
     headSha: binding.headSha, baseSha: binding.baseSha,
     pipelineSha: binding.pipelineSha,
