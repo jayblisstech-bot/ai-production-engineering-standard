@@ -137,6 +137,8 @@ test('repeated diff headers for the same file union right and left anchors', () 
   const lineIndex = diffLineIndex(diff);
   assert.deepEqual([...lineIndex.get('repeated.ts').RIGHT].sort((a,b)=>a-b), [10,21]);
   assert.deepEqual([...lineIndex.get('repeated.ts').LEFT].sort((a,b)=>a-b), [10,21]);
+  const { addedLineIndex } = require('../scripts/lib');
+  assert.deepEqual([...addedLineIndex(diff).get('repeated.ts')].sort((a,b)=>a-b), [10,21]);
 });
 
 test('hunk planner retains all added and removed anchors under token and chunk caps', () => {
