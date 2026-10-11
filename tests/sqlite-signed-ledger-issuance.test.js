@@ -4,7 +4,7 @@ const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {SqliteBudgetStore}=require('../gateway/sqlite-budget-store');
 const {signMockApproval,createSynchronousApprovalSignatureVerifier}=require('../gateway/mock-signed-approval');
 const binding={repository:'example/numerra',prNumber:'11',runId:'12345',attempt:'1',headSha:'a'.repeat(40),baseSha:'b'.repeat(40),pipelineSha:'c'.repeat(40)};
-const secret=Buffer.alloc(32,9),now=1700000000000;
+const secret=Buffer.alloc(32,9),now=Date.now();
 const base={grantId:'review-1',binding,capUsd:'10',nonce:'approval-1',expiresAt:now+60000};
 const sign=(p)=>signMockApproval({secret,...p});
 const args={...base,approval:sign(base),verifyApproval:createSynchronousApprovalSignatureVerifier({secret,now:()=>now})};
