@@ -1,0 +1,94 @@
+name: APES Mock-Only Serial Matrix Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/ai-chunk-protocol.js"
+      - "tests/fixtures/mock-serial-matrix.js"
+      - ".github/workflows/ai-serial-matrix-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mock-manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      indices: ${{ steps.plan.outputs.indices }}
+      digest: ${{ steps.plan.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Generate synthetic immutable manifest
+        id: plan
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node tests/fixtures/mock-serial-matrix.js prepare
+
+  mock-chunk:
+    name: Mock reviewer chunk ${{ matrix.index }}
+    needs: mock-manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        index: ${{ fromJSON(needs.mock-manifest.outputs.indices) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Validate one synthetic chunk without provider access
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_MANIFEST_DIGEST: ${{ needs.mock-manifest.outputs.digest }}
+          CHUNK_INDEX: ${{ matrix.index }}
+        run: node tests/fixtures/mock-serial-matrix.js review
+      - name: Upload mock result only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: apes-ai-chunk-${{ matrix.index }}
+          path: result.json
+          if-no-files-found: error
+          retention-days: 1
+
+  mock-aggregate:
+    needs: [mock-manifest, mock-chunk]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail closed if a mock chunk did not succeed
+        if: ${{ needs.mock-manifest.result != 'success' || needs.mock-chunk.result != 'success' }}
+        run: exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Download this run's isolated mock results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: apes-ai-chunk-*
+          path: mock-results
+          merge-multiple: false
+      - name: Assert every synthetic chunk is verified
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_MANIFEST_DIGEST: ${{ needs.mock-manifest.outputs.digest }}
+        run: node tests/fixtures/mock-serial-matrix.js aggregate
