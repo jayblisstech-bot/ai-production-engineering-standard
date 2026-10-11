@@ -7,6 +7,7 @@ const {
 
 const HEAD = 'a'.repeat(40), BASE = 'b'.repeat(40), PIPELINE = 'c'.repeat(40);
 const binding = Object.freeze({
+  repository: 'jayblisstech-bot/Numerra', prNumber: '11',
   runId: '38171001847', attempt: '1',
   headSha: HEAD, baseSha: BASE, pipelineSha: PIPELINE,
 });
@@ -31,13 +32,15 @@ test('exact $10 USD cap stored as micro USD; reject fractional cents and nonsens
 
 test('cap binding is immutable across head, base, pinned pipeline, attempt and run', () => {
   assert.deepEqual(assertBinding(binding), binding);
-  for (const field of ['headSha', 'baseSha', 'pipelineSha', 'runId', 'attempt']) {
+  for (const field of ['headSha', 'baseSha', 'pipelineSha', 'runId', 'attempt', 'repository', 'prNumber']) {
     const ledger = newLedger();
-    const replaced = { ...binding, [field]: field.endsWith('Sha') ? 'f'.repeat(40) : '2' };
+    const replaced = { ...binding, [field]: field.endsWith('Sha') ? 'f'.repeat(40) : field === 'repository' ? 'another-org/another-repo' : '2' };
     assert.throws(() => ledger.reserve({ binding: replaced, requestId: 'r1', ceilingMicros: 10 }), /RUN_BINDING_MISMATCH/);
     assert.equal(ledger.snapshot().remainingMicros, 10000000);
   }
   assert.throws(() => assertBinding({ ...binding, headSha: 'main' }), /INVALID_RUN_BINDING/);
+  assert.throws(() => assertBinding({ ...binding, repository: 'bad' }), /INVALID_REPOSITORY_SCOPE/);
+  assert.throws(() => assertBinding({ ...binding, prNumber: '0' }), /INVALID_REPOSITORY_SCOPE/);
 });
 
 test('quote is rounded up to integer microdollars, including request fees', () => {
