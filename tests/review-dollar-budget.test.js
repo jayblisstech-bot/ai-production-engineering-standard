@@ -31,7 +31,7 @@ test('exact $10 USD cap stored as micro USD; reject fractional cents and nonsens
 });
 
 test('cap binding is immutable across head, base, pinned pipeline, attempt and run', () => {
-  assert.deepEqual(assertBinding(binding), binding);
+  assert.deepEqual(assertBinding(binding), { ...binding, repository: binding.repository.toLowerCase() });
   for (const field of ['headSha', 'baseSha', 'pipelineSha', 'runId', 'attempt', 'repository', 'prNumber']) {
     const ledger = newLedger();
     const replaced = { ...binding, [field]: field.endsWith('Sha') ? 'f'.repeat(40) : field === 'repository' ? 'another-org/another-repo' : '2' };
