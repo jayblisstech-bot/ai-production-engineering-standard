@@ -128,3 +128,41 @@ test('AI review reduces unchanged context while deterministic scanners retain de
     'the AI reviewer must still receive a complete changed-line unified diff');
   assert.equal((after.match(/--unified=80/g) || []).length, 0);
 });
+
+test('repeated diff headers for the same file union right and left anchors', () => {
+  const { diffLineIndex } = require('../scripts/lib');
+  const header = 'diff --git a/repeated.ts b/repeated.ts\n--- a/repeated.ts\n+++ b/repeated.ts\n';
+  const diff = header + '@@ -10,1 +10,1 @@\n-old10\n+new10\n'
+    + header + '@@ -21,1 +21,1 @@\n-old21\n+new21\n';
+  const lineIndex = diffLineIndex(diff);
+  assert.deepEqual([...lineIndex.get('repeated.ts').RIGHT].sort((a,b)=>a-b), [10,21]);
+  assert.deepEqual([...lineIndex.get('repeated.ts').LEFT].sort((a,b)=>a-b), [10,21]);
+});
+
+test('hunk planner retains all added and removed anchors under token and chunk caps', () => {
+  const { diffLineIndex } = require('../scripts/lib');
+  const before = 'diff --git a/large.ts b/large.ts\n--- a/large.ts\n+++ b/large.ts\n';
+  const body = Array.from({length:42},(_,i)=>'-removed_'+i+'\n+added_'+i+'\n').join('');
+  const original = before+'@@ -1,42 +1,42 @@\n'+body;
+  const chunks = chunkDiff(original, 500, 12, {maxTokens:125,charsPerToken:4});
+  assert.ok(chunks.length>1);
+  const actualR=new Set(), actualL=new Set();
+  for(const chunk of chunks) {
+    assert.ok(chunk.length<=500);
+    const i=diffLineIndex(chunk).get('large.ts');
+    assert.ok(i);
+    for(const n of i.RIGHT) { assert.ok(!actualR.has(n),'added line must not be duplicated');actualR.add(n); }
+    for(const n of i.LEFT) { assert.ok(!actualL.has(n),'removed line must not be duplicated');actualL.add(n); }
+  }
+  assert.deepEqual([...actualR].sort((a,b)=>a-b),Array.from({length:42},(_,i)=>i+1));
+  assert.deepEqual([...actualL].sort((a,b)=>a-b),Array.from({length:42},(_,i)=>i+1));
+});
+
+test('integration leaves provider execution sequential and keeps deadline checkpoint controls', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const source=fs.readFileSync(path.join(__dirname,'../scripts/call-review-gateway.js'),'utf8');
+  assert.match(source,/for \(let i = 0; i < chunks.length; i\+\+\)/);
+  assert.match(source,/checkpoint\.commit\(i,/);
+  assert.match(source,/deadlineMs: providerDeadlineMs/);
+  assert.doesNotMatch(source,/review-chunk-executor|reviewConcurrency|maxConcurrentChunks/);
+});
