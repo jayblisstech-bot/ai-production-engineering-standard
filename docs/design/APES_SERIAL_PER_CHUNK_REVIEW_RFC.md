@@ -1,6 +1,6 @@
 # APES RFC — Complete AI Reviews Under a Per-Job 20-Minute Cap
 
-**Status:** DESIGN ONLY — no provider runs, no workflow changes, no production adoption.
+**Status:** IMPLEMENTED ON DRAFT BRANCH ONLY — no paid provider runs, no APES main merge, no Numerra workflow adoption.
 **Observed failure:** Numerra PR #11 candidate `a710f390505014b93a11eda57664e34a87b1cea1`, Actions run `38154292695`, merged APES PR #9 at `b443f45dd5ba8435939aba97434b8b3a77c8fc91`.
 
 ## Evidence
@@ -22,6 +22,19 @@ With measured chunks averaging ~9 minutes and 9 chunks, merely enabling two conc
 ## Alternative requiring explicit approval
 
 Raise the existing single `ai-review` job time budget (e.g. to 120 minutes) while preserving sequential model calls, and use existing per-chunk progress logs. This is a simpler but less resilient implementation; it increases runner occupancy and allows a stuck chunk to consume substantially more wall time. It **must not** be silently merged or enabled because it changes approved runtime/resource exposure.
+
+## Implementation status and mandatory independent review
+
+A first implementation now exists only in this draft branch:
+
+- `scripts/ai-chunk-protocol.js` generates a deterministic manifest bound to the original base/head, pinned APES SHA, trusted policy, workflow run/attempt, sanitized diff and review chunk hashes. Each reviewer reconstructs it and verifies the manifest before sending a single chunk to the approved provider.
+- The reusable `ai-review.yml` defines a manifest preparation job, a matrix with `max-parallel: 1` and `fail-fast: true`, one 20-minute job per chunk, a minimal JSON artifact from each successful job, and a complete-coverage aggregation job that alone holds PR comment write permission. Existing fail-closed `quality-gate` remains required.
+- `tests/ai-serial-review-protocol.test.js` uses synthetic diffs and fake model outputs only; includes nine-of-nine coverage, chunk cancellation/missing/duplicate rejection, wrong-base/head/run/attempt/tampered hashes, invalid finding line references, credential leakage prevention, over-budget chunk limits, and static serial-concurrency checks. The legacy workflow contract test now enforces provider credentials only in the worker job.
+- APES Self-Test and AI Diff Chunking Regression passed on implementation commit `309b89299f10c9c1f4ae6a7e8e5ccc086a768075`. Subsequent `c2004a088a53b4b84b1780c57ef416443b5f21db` passed APES Self-Test; final syntax test status must be confirmed separately before approving a merge.
+
+**Risks to review before merge:** GitHub artifact trust/visibility and retention, workflow cancellation and run-attempt replay, matrix fail-fast semantics, potential elevated per-chunk provider retry/credential use caused by fresh Hermes state in separate jobs, reproducibility of base-branch trusted policy and context, and the absence of live provider validation. Successful mock tests are NOT an external review PASS.
+
+**Authorization boundary:** Only development, mock-only CI and a draft design PR were approved. Merging APES into main, changing Numerra's pinned workflow, new provider calls, increased concurrency or budget, and production/release actions are NOT authorized.
 
 ## Decision requested
 
