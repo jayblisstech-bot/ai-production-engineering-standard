@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const {
   loadConfig, diffLineIndex,
 } = require('./lib');
-const { scanDiff, redactSecretsInText } = require('./scan-secrets');
+const { scanDiff, redactSecretsInText, detectSecretsInText } = require('./scan-secrets');
 const {
   chunkDiff, collectContext, normalizeReview, parseJsonObject,
   dedupeFindings, postInlineComment,
@@ -117,6 +117,9 @@ async function reviewOneChunk(plan, index, reviewFn) {
   insist(response && isObject(response.validated), 'provider response not validated');
   const normalized = normalizeReview(response.validated, diffLineIndex(chunk));
   insist(!normalized.needs_escalation, 'model requested capability escalation');
+  for (const finding of normalized.findings) insist(
+    !detectSecretsInText(finding.comment, 'review finding').length,
+    'reviewer output contains potential secret');
   const result = {
     protocolVersion: 1,
     manifestDigest: plan.digest,
@@ -146,6 +149,9 @@ function validateResult(plan, result) {
     && result.total === plan.manifest.total, 'result manifest/coverage tampering');
   const verified = normalizeReview({ findings: result.findings },
     diffLineIndex(plan.chunks[result.index - 1]));
+  for (const finding of verified.findings) insist(
+    !detectSecretsInText(finding.comment, 'result finding').length,
+    'artifact contains potential secret');
   insist(result.verdict === verified.verdict, 'result verdict/count tampering');
   return verified.findings;
 }
