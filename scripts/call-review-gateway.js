@@ -172,6 +172,12 @@ function splitOversizedFileSection(section, maxChars) {
   return sections;
 }
 
+function estimateTokens(text, charsPerToken = 4) {
+  const divisor = Number(charsPerToken);
+  if (!Number.isFinite(divisor) || divisor <= 0) throw new Error('charsPerToken must be a positive number.');
+  return Math.ceil(String(text || '').length / divisor);
+}
+
 function chunkDiff(diffText, maxChars, maxChunks, options = {}) {
   const charsPerToken = Number(options.charsPerToken ?? 4);
   const maxTokens = Number(options.maxTokens ?? Math.floor(Number(maxChars) / charsPerToken));
