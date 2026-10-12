@@ -42,6 +42,7 @@ class SqliteBudgetStore {
       'reserved_micros INTEGER NOT NULL DEFAULT 0 CHECK (reserved_micros >= 0),',
       "state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','closed')),",
       'CHECK (used_micros + reserved_micros <= limit_micros));',
+      'CREATE TABLE IF NOT EXISTS approval_nonces (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);',
       'CREATE TABLE IF NOT EXISTS budget_requests (',
       'grant_id TEXT NOT NULL, request_id TEXT NOT NULL,',
       'ceiling_micros INTEGER NOT NULL CHECK (ceiling_micros > 0),',
@@ -73,6 +74,31 @@ class SqliteBudgetStore {
       this.db.prepare('INSERT INTO budget_grants (grant_id,binding_key,limit_micros) VALUES (?,?,?)')
         .run(grantId, bindingKey(assertBinding(binding)), cap);
       return this.snapshot(grantId, binding);
+    });
+  }
+  /**
+   * MOCK ONLY: consume a cryptographically verified owner approval and create
+   * the REAL budget grant in one SQLite transaction. verifyApproval MUST be a
+   * synchronous gateway-owned cryptographic validator, never an HTTP callback,
+   * boolean supplied by a caller, or async function.
+   */
+  issueSignedGrant({ grantId, binding, capUsd, nonce, expiresAt, approval, verifyApproval }) {
+    if (typeof verifyApproval !== 'function' || verifyApproval.constructor.name === 'AsyncFunction' ||
+        typeof nonce !== 'string' || !GRANT_RE.test(nonce) ||
+        !Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) {
+      throw new Error('APES_BUDGET_APPROVAL_DENIED');
+    }
+    const run = assertBinding(binding);
+    const cap = parseCapUsd(capUsd);
+    const verdict = verifyApproval({ grantId, binding: run, capUsd, nonce, expiresAt, approval });
+    if (verdict !== true) throw new Error('APES_BUDGET_APPROVAL_DENIED');
+    return this.tx(() => {
+      const claimed = this.db.prepare('INSERT OR IGNORE INTO approval_nonces (nonce,expires_at) VALUES (?,?)')
+        .run(nonce, expiresAt);
+      if (claimed.changes !== 1) throw new Error('APES_BUDGET_APPROVAL_REPLAY');
+      this.db.prepare('INSERT INTO budget_grants (grant_id,binding_key,limit_micros) VALUES (?,?,?)')
+        .run(ident(grantId, 'grant_id'), bindingKey(run), cap);
+      return this.snapshot(grantId, run);
     });
   }
   /** Only a trusted gateway may supply quoteMicros (never accept user-provided quotes). */
