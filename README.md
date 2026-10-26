@@ -150,3 +150,5 @@ Hermes health/cooldown state is shared across all review chunks in a single work
 ```bash
 npm test
 ```
+
+<!-- APES Milestone A README-only required-check probe; temporary, not for merge. -->
