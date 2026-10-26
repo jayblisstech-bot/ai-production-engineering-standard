@@ -1,10 +1,19 @@
-# APES central repository ownership
-* @jayblisstech-bot
+# APES independent human code ownership
+# Review principal: human account, separate from automated change authors.
+# GitHub enforces these owners only after code-owner review is enabled in a ruleset.
+# Until then, this file requests ownership but does not require an approval.
 
-# Security-critical paths
-/.github/workflows/ @jayblisstech-bot
-/scripts/ @jayblisstech-bot
-/docs/SECURITY_POLICY.md @jayblisstech-bot
-/docs/AI_REVIEW_POLICY.md @jayblisstech-bot
-/docs/HERMES_ROUTING.md @jayblisstech-bot
-/templates/project-repo/.github/ @jayblisstech-bot
+# Human-owner fallback protects existing and newly introduced paths.
+* @jflowdking212
+
+# Explicit security, automation, and governance ownership.
+/.github/CODEOWNERS @jflowdking212
+/.github/workflows/ @jflowdking212
+/.github/ @jflowdking212
+/scripts/ @jflowdking212
+/gateway/ @jflowdking212
+/tests/ @jflowdking212
+/docs/ @jflowdking212
+/templates/ @jflowdking212
+/package.json @jflowdking212
+/VERSION @jflowdking212
