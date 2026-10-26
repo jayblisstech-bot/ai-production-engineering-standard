@@ -1,0 +1,9 @@
+# Deliberately malformed GitHub Actions fixture.
+# Must remain outside .github/workflows: actionlint must reject it.
+name: APES intentionally invalid workflow fixture
+on: workflow_dispatch
+jobs:
+  invalid:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ruby -e "require 'yaml'; YAML.load_file('fixture.yml', aliases: true)"
