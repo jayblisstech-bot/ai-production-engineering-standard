@@ -19,7 +19,7 @@ jobs:
   self-test:
     name: APES Self-Test
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Materialize exact APES commit
         shell: bash
@@ -28,13 +28,6 @@ jobs:
           git clone --filter=blob:none --no-checkout "https://github.com/${GITHUB_REPOSITORY}.git" repo
           cd repo
           git checkout --detach "$GITHUB_SHA"
-      - name: Verify Node.js runtime
-        working-directory: repo
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --version
-          node -e "const major=Number(process.versions.node.split('.')[0]); if (major < 20) { console.error('APES requires Node >=20'); process.exit(1); }"
       - name: Syntax-check scripts and tests
         working-directory: repo
         shell: bash
@@ -49,6 +42,45 @@ jobs:
         run: |
           set -euo pipefail
           node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); JSON.parse(require('fs').readFileSync('templates/project-repo/.apes.json','utf8'));"
-      - name: Run APES regression/security suite
+      - name: Install pinned actionlint
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION=1.7.7
+          ACTIONLINT_SHA256=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+          curl -fsSL --retry 2 --max-time 90 -o "$RUNNER_TEMP/actionlint.tgz" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -version
+      - name: Lint workflows (pinned actionlint)
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/actionlint" .github/workflows/*.yml templates/project-repo/.github/workflows/*.yml
+      - name: Linter rejects known-bad workflow
+        working-directory: repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          if output="$("$RUNNER_TEMP/actionlint" tests/fixtures/invalid-workflow.yml 2>&1)"; then
+            echo 'ERROR: actionlint accepted a known-invalid workflow' >&2
+            exit 1
+          fi
+          if ! grep -Fq 'could not parse as YAML' <<< "$output"; then
+            echo "ERROR: actionlint failed for the wrong reason: $output" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20'
+      - name: Tests on Node 20
+        working-directory: repo
+        run: npm test
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Tests on Node 24
         working-directory: repo
         run: npm test
