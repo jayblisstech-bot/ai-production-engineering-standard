@@ -13,6 +13,12 @@ test('required APES Self-Test remains one stable check context with independent 
   assert.match(workflow, /^    name: APES Self-Test$/m);
   assert.match(workflow, /^  pull_request:$/m);
   assert.match(workflow, /Lint workflows \(pinned actionlint\)/);
+  const lintStep = workflow.split('      - name: Lint workflows (pinned actionlint)')[1]
+    ?.split('      - name: Linter rejects known-bad workflow')[0];
+  assert.ok(lintStep, 'pinned Actionlint step must exist');
+  assert.match(lintStep, /^        working-directory: repo$/m);
+  assert.match(lintStep, /^          "\$RUNNER_TEMP\/actionlint" \.github\/workflows\/\*\.yml templates\/project-repo\/\.github\/workflows\/\*\.yml$/m,
+    'lint both the live APES workflows and the project template workflows');
   assert.match(workflow, /actionlint_\$\{ACTIONLINT_VERSION\}_linux_amd64\.tar\.gz/);
   assert.match(workflow, /sha256sum -c -/);
   assert.match(workflow, /Linter rejects known-bad workflow/);
@@ -20,7 +26,10 @@ test('required APES Self-Test remains one stable check context with independent 
   assert.match(workflow, /node-version: ['"]?24['"]?/);
   assert.match(workflow, /Tests on Node 20/);
   assert.match(workflow, /Tests on Node 24/);
-  assert.doesNotMatch(workflow, /^    matrix:/m, 'check name must not become matrix-suffixed');
+  const selfTestJob = workflow.split(/^  self-test:\s*$/m)[1];
+  assert.ok(selfTestJob, 'stable Self-Test job key must exist');
+  assert.doesNotMatch(selfTestJob, /^\s+matrix\s*:/m,
+    'a matrix would rename the required APES Self-Test status check');
 });
 
 test('diff chunk regression runs for every PR against main and validates YAML', () => {
