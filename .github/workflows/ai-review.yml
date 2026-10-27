@@ -316,6 +316,11 @@ jobs:
       matrix:
         index: ${{ fromJSON(needs.ai-manifest.outputs.indices) }}
     steps:
+      - name: Establish absolute review deadline before job setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "APES_REVIEW_DEADLINE_MS=$(($(date +%s) * 1000 + 960000))" >> "$GITHUB_ENV"
       - name: Checkout exact project PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
