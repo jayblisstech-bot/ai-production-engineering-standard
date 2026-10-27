@@ -18,6 +18,7 @@ const {
   dedupeFindings, postInlineComment,
 } = require('./call-review-gateway');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
+const { DEFAULT_REVIEW_BUDGET_MS, remainingDeadlineMs } = require('./review-deadline');
 
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const hashJson = (value) => sha256(JSON.stringify(value));
@@ -92,7 +93,8 @@ function requireDigest(plan, expectedDigest) {
     && expectedDigest === plan.digest, 'manifest digest mismatch between jobs');
 }
 
-async function reviewOneChunk(plan, index, reviewFn) {
+async function reviewOneChunk(plan, index, reviewFn, deadlineMs = null) {
+  remainingDeadlineMs(deadlineMs);
   insist(Number.isInteger(index) && index >= 1 && index <= plan.manifest.total, 'invalid chunk index');
   insist(typeof reviewFn === 'function', 'review provider function is missing');
   const chunk = plan.chunks[index - 1];
@@ -112,8 +114,9 @@ async function reviewOneChunk(plan, index, reviewFn) {
   const response = await reviewFn({
     modelTier: plan.manifest.modelTier,
     systemPrompt: REVIEW_SYSTEM_PROMPT,
-    userPrompt, validate,
+    userPrompt, validate, deadlineMs,
   });
+  remainingDeadlineMs(deadlineMs);
   insist(response && isObject(response.validated), 'provider response not validated');
   const normalized = normalizeReview(response.validated, diffLineIndex(chunk));
   insist(!normalized.needs_escalation, 'model requested capability escalation');
@@ -233,8 +236,15 @@ async function main(env = process.env) {
   if (command === 'review') {
     const index = Number(env.CHUNK_INDEX);
     insist(positiveInt(env.CHUNK_INDEX), 'chunk index missing');
+    const suppliedDeadline = env.APES_REVIEW_DEADLINE_MS;
+    const deadlineMs = suppliedDeadline === undefined
+      ? Date.now() + DEFAULT_REVIEW_BUDGET_MS : Number(suppliedDeadline);
+    insist(Number.isSafeInteger(deadlineMs) && deadlineMs > 0,
+      'invalid absolute review deadline');
+    remainingDeadlineMs(deadlineMs);
     const hermes = new HermesOrchestrator({ config: loadConfig(env.PROJECT_ROOT, env.APES_CONFIG_PATH) });
-    const data = await reviewOneChunk(plan, index, (args) => hermes.review(args));
+    const data = await reviewOneChunk(plan, index, (args) => hermes.review(args), deadlineMs);
+    remainingDeadlineMs(deadlineMs);
     insist(typeof env.RESULT_FILE === 'string' && path.isAbsolute(env.RESULT_FILE),
       'result file path must be absolute');
     fs.writeFileSync(env.RESULT_FILE, JSON.stringify(data), { mode: 0o600, flag: 'wx' });

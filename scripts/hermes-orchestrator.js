@@ -16,6 +16,7 @@
  */
 const { callOpenRouter, callOpenAI, callAnthropic } = require('./provider-clients');
 const { GeminiCredentialPool, parseGeminiCredentials } = require('./gemini-credential-pool');
+const { remainingDeadlineMs, boundedRequestTimeoutMs } = require('./review-deadline');
 
 const CAPABILITIES = ['medium', 'strong', 'advanced'];
 
@@ -124,42 +125,52 @@ class HermesOrchestrator {
     }
   }
 
-  async callCandidate(provider, model, systemPrompt, userPrompt, capability) {
-    const timeoutMs = Number(this.config.review.requestTimeoutMs || 90000);
+  async callCandidate(provider, model, systemPrompt, userPrompt, capability, deadlineMs = null) {
+    const timeoutMs = boundedRequestTimeoutMs(this.config.review.requestTimeoutMs || 90000, deadlineMs);
     if (provider === 'gemini') {
       if (!this.geminiPool) throw Object.assign(new Error('No Gemini credential pool is configured.'), { fallbackEligible: true });
       const thinkingLevel = this.config.review.routing.geminiThinkingLevel[capability];
-      return this.geminiPool.request(model, systemPrompt, userPrompt, { thinkingLevel });
+      return this.geminiPool.request(model, systemPrompt, userPrompt,
+        deadlineMs == null ? { thinkingLevel } : { thinkingLevel, deadlineMs });
     }
     const client = this.clients[provider];
     if (!client) throw Object.assign(new Error(`No client implemented for provider ${provider}.`), { fallbackEligible: true });
-    return client(model, systemPrompt, userPrompt, timeoutMs, undefined);
+    return client(model, systemPrompt, userPrompt, timeoutMs, undefined, deadlineMs);
   }
 
-  async review({ modelTier, systemPrompt, userPrompt, validate }) {
+  async review({ modelTier, systemPrompt, userPrompt, validate, deadlineMs = null }) {
+    remainingDeadlineMs(deadlineMs);
     if (typeof validate !== 'function') throw new Error('Hermes requires a response validator so malformed model output cannot be accepted.');
     const errors = [];
     for (const capability of escalationCapabilities(modelTier)) {
+      remainingDeadlineMs(deadlineMs);
       const providers = providerOrderForCapability(this.config, capability, this.env);
       for (const provider of providers) {
+        remainingDeadlineMs(deadlineMs);
         const models = modelCandidates(this.config, provider, capability);
         for (const model of models) {
+          remainingDeadlineMs(deadlineMs);
           if (provider !== 'gemini' && !this.candidateHealthy(provider, model)) {
             this.trace.push({ capability, provider, model, event: 'candidate-skipped-unhealthy' });
             continue;
           }
           let response;
           try {
-            response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability);
+            response = await this.callCandidate(provider, model, systemPrompt, userPrompt, capability, deadlineMs);
+            remainingDeadlineMs(deadlineMs);
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'response' });
           } catch (err) {
+            if (err.code === 'REVIEW_DEADLINE_EXCEEDED' || err.code === 'HTTP_BODY_TOO_LARGE') throw err;
+            remainingDeadlineMs(deadlineMs);
             errors.push(`${provider}:${model}: ${err.message}`);
             this.trace.push({ capability, provider, model, event: 'provider-failure', code: err.code || null });
-            if (provider !== 'gemini') this.recordProviderFailure(provider, model, err);
+            // An input-overflow response is not a permanent provider/model defect.
+            if (provider !== 'gemini' && err.code !== 'CONTEXT_OVERFLOW') this.recordProviderFailure(provider, model, err);
             continue;
           }
 
           try {
+            remainingDeadlineMs(deadlineMs);
             const validated = validate(response.text);
             if (validated && validated.needs_escalation === true) throw new Error('Reviewer explicitly requested stronger capability.');
             this.trace.push({ capability, provider, model: response.model || model, credentialId: response.credentialId || null, event: 'validated' });
@@ -171,6 +182,7 @@ class HermesOrchestrator {
         }
       }
     }
+    remainingDeadlineMs(deadlineMs);
     throw new Error(`Hermes exhausted all approved provider/model routes at or above required capability. ${errors.join(' | ')}`);
   }
 

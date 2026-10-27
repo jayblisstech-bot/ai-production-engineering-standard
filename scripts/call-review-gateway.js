@@ -10,6 +10,7 @@ const {
 } = require('./lib');
 const { detectSecretsInText, scanDiff, redactSecretsInText } = require('./scan-secrets');
 const { HermesOrchestrator } = require('./hermes-orchestrator');
+const { fetchBufferedResponse } = require('./http-bounded');
 const ALLOWED_SEVERITIES = new Set(['P0', 'P1', 'P2', 'P3']);
 
 const REVIEW_SYSTEM_PROMPT = `You are an independent production pull-request reviewer.
@@ -279,8 +280,8 @@ function normalizeReview(raw, lineIndex) {
   return { verdict, findings, needs_escalation: raw.needs_escalation === true, p0_count: counts.P0, p1_count: counts.P1, p2_count: counts.P2, p3_count: counts.P3 };
 }
 
-async function postInlineComment(owner, repo, prNumber, headSha, finding) {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
+async function postInlineComment(owner, repo, prNumber, headSha, finding, deadlineMs = null, timeoutMs = 20000) {
+  const res = await fetchBufferedResponse(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -295,7 +296,7 @@ async function postInlineComment(owner, repo, prNumber, headSha, finding) {
       line: finding.line,
       side: finding.side || 'RIGHT',
     }),
-  });
+  }, timeoutMs, deadlineMs, 65536);
   if (!res.ok) throw new Error(`Failed to post required inline review comment on ${finding.path}:${finding.line}: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
 }
 
