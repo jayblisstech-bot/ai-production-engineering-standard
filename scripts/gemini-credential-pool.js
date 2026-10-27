@@ -151,8 +151,8 @@ class GeminiCredentialPool {
       let credentialTransientFailure = false;
 
       for (let attempt = 0; attempt <= this.maxRetriesPerCredential; attempt++) {
-        const requestTimeoutMs = boundedRequestTimeoutMs(this.timeoutMs, Math.min(
-          modelDeadlineMs, deadlineMs ?? Number.MAX_SAFE_INTEGER));
+        const requestTimeoutMs = boundedRequestTimeoutMs(
+          Math.min(this.timeoutMs, checkModelBudget()), deadlineMs);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(credential.key)}`;
         let res;
         try {
