@@ -150,3 +150,5 @@ Hermes health/cooldown state is shared across all review chunks in a single work
 ```bash
 npm test
 ```
+
+<!-- Temporary Milestone B2 approval-gate acceptance probe: never merge. -->
