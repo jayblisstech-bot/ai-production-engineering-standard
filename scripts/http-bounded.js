@@ -59,7 +59,7 @@ async function readBody(res, maxBodyBytes, controller) {
   const raw = res.ok && typeof res.json === 'function'
     ? JSON.stringify(await res.json())
     : typeof res.text === 'function' ? await res.text()
-    : JSON.stringify(await res.json());
+    : typeof res.json === 'function' ? JSON.stringify(await res.json()) : '';
   if (Buffer.byteLength(raw, 'utf8') > maxBodyBytes) throw bodyTooLarge();
   return raw;
 }
