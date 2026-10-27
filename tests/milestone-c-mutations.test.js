@@ -23,11 +23,13 @@ function checkMutation(file, transform, testPattern, timeoutMs = 4500) {
 
     // Run ONLY the matching local mock test in a separate process. Hung body
     // mutations are forcibly killed by an independent test watchdog.
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT; // Nested node:test must run as a fresh process.
     const child = spawnSync(process.execPath, [
       '--test', '--test-name-pattern=' + testPattern, regressionTest,
     ], {
       cwd: work, encoding: 'utf8', timeout: timeoutMs,
-      env: { ...process.env, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '',
+      env: { ...childEnv, OPENAI_API_KEY: '', OPENROUTER_API_KEY: '',
         ANTHROPIC_API_KEY: '', GEMINI_API_KEY: '', GEMINI_API_KEYS_JSON: '' },
     });
     const killed = child.error?.code === 'ETIMEDOUT';
