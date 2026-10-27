@@ -280,7 +280,7 @@ function normalizeReview(raw, lineIndex) {
   return { verdict, findings, needs_escalation: raw.needs_escalation === true, p0_count: counts.P0, p1_count: counts.P1, p2_count: counts.P2, p3_count: counts.P3 };
 }
 
-async function postInlineComment(owner, repo, prNumber, headSha, finding, deadlineMs = null) {
+async function postInlineComment(owner, repo, prNumber, headSha, finding, deadlineMs = null, timeoutMs = 20000) {
   const res = await fetchBufferedResponse(`https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/comments`, {
     method: 'POST',
     headers: {
@@ -296,7 +296,7 @@ async function postInlineComment(owner, repo, prNumber, headSha, finding, deadli
       line: finding.line,
       side: finding.side || 'RIGHT',
     }),
-  }, 20000, deadlineMs, 65536);
+  }, timeoutMs, deadlineMs, 65536);
   if (!res.ok) throw new Error(`Failed to post required inline review comment on ${finding.path}:${finding.line}: HTTP ${res.status} ${(await res.text()).slice(0, 500)}`);
 }
 
