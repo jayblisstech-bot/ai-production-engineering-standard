@@ -35,7 +35,10 @@ function bodyTooLarge() {
 
 async function readBody(res, maxBodyBytes, controller) {
   const contentLength = Number(res.headers?.get?.('content-length'));
-  if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) throw bodyTooLarge();
+  if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
+    controller.abort();
+    throw bodyTooLarge();
+  }
 
   if (res.body && typeof res.body.getReader === 'function') {
     const reader = res.body.getReader();
